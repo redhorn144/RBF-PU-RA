@@ -1,6 +1,6 @@
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 import numpy as np
+import numba as nb
 
 @dataclass
 class Patch:
@@ -17,12 +17,3 @@ class Patch:
     w_bar: np.ndarray           # (n_local,)     normalized C2 PU weight
     gw_bar: np.ndarray          # (n_local, d)   gradient of normalized weight
     lw_bar: np.ndarray          # (n_local,)     Laplacian of normalized weight
-    # Shape parameter from RA method (needed to evaluate RBF at quad points)
-    shape_param: float = 0.0
-    # Galerkin quadrature fields (populated by GenQuadrature in Setup)
-    quad_pts:     Optional[np.ndarray] = None  # (n_q, d)       quadrature points (interior)
-    quad_weights: Optional[np.ndarray] = None  # (n_q,)         weights with Jacobian
-    Phi_q:        Optional[np.ndarray] = None  # (n_q, n_local) RBF basis at quad pts
-    dPhi_q:       Optional[np.ndarray] = None  # (d, n_q, n_local) RBF grad at quad pts
-    w_bar_q:      Optional[np.ndarray] = None  # (n_q,)         normalized PU weight at quad pts
-    gw_bar_q:     Optional[np.ndarray] = None  # (n_q, d)       grad of normalized PU weight at quad pts

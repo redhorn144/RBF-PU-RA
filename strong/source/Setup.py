@@ -15,7 +15,7 @@ def Setup(comm, nodes, normals, nodes_per_patch, overlap = 3):
     rank = comm.Get_rank()
     
     if rank == 0:
-        centers, radii, patch_node_inds = SetupPatches(nodes, 50, overlap=3)
+        centers, radii, patch_node_inds = SetupPatches(nodes, nodes_per_patch, overlap=3)
     else:
         centers = None
         radii = None

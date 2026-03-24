@@ -3,7 +3,7 @@ from mpi4py import MPI
 
 #####################################
 # Matrix free operators for the global system
-# to be applied in the GMRES solver
+# to be applied in the Iterative solver
 #####################################
 
 #####################################

@@ -42,8 +42,8 @@ def StableFlatMatrices(nodes, K = 64, n = 16, m = 48):
     phi_stable = a_phi[0].real.reshape(N, N)
     lap_stable = a_lap[0].real.reshape(N, N)
     grad_stable = a_grad[:, 0, :].real.reshape(d, N, N)
-
-    return phi_stable, grad_stable, lap_stable, Er
+    
+    return phi_stable, grad_stable, lap_stable
 
 ######################################
 # Helpers for RA method

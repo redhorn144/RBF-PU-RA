@@ -1,9 +1,9 @@
 import numpy as np
-from scipy.sparse.linalg import spsolve
 from mpi4py import MPI
 from nodes.SquareDomain import PoissonSquareOne
 from source.Setup import Setup
-from source.Galerkin import assemble_advection, apply_dirichlet
+from source.Operators import ApplyDeriv
+from source.Solver import gmres
 from source.Plotter import AnimateSolution
 
 comm = MPI.COMM_WORLD
@@ -23,89 +23,83 @@ normals = comm.bcast(normals, root=0)
 groups  = comm.bcast(groups,  root=0)
 
 N = nodes.shape[0]
-bdy_indices = groups['boundary:all']
+boundary_nodes = groups['boundary:all']
 
 # ── Patch setup ───────────────────────────────────────────────────────────────
-patches, _ = Setup(comm, nodes, normals, 80, bdy_indices=bdy_indices)
+patches, _ = Setup(comm, nodes, normals, 80)
 print(f"Rank {rank} setup complete with {len(patches)} patches.")
 
+# ── Derivative operators ──────────────────────────────────────────────────────
+Dx = ApplyDeriv(comm, patches, N, 0, [], [])
+Dy = ApplyDeriv(comm, patches, N, 1, [], [])
+
 # ── Problem definition ────────────────────────────────────────────────────────
-# Solid-body rotation about domain centre (0.5, 0.5) with angular velocity omega.
-# Velocity field:  c(x,y) = omega * (-(y-0.5),  (x-0.5))
+# Solid-body rotation about domain centre (0.5, 0.5) with angular velocity ω.
+# Velocity field:  c(x,y) = ω * (-(y-0.5),  (x-0.5))
+# Period:          T = 2π / ω
 omega = 1.0
+cx = -omega * (nodes[:, 1] - 0.5)
+cy =  omega * (nodes[:, 0] - 0.5)
 
-def cx_fn(x): return -omega * (x[:, 1] - 0.5)
-def cy_fn(x): return  omega * (x[:, 0] - 0.5)
+# Gaussian bump offset from centre by 0.2 in y so it orbits visibly.
+x0, y0, sigma = 0.5, 0.70, 0.07
+u0 = np.exp(-((nodes[:, 0] - x0)**2 + (nodes[:, 1] - y0)**2) / (2.0 * sigma**2))
+u0[boundary_nodes] = 0.0
 
-# ── Galerkin assembly (MPI-collective) ────────────────────────────────────────
+u = u0.copy()
+
+# ── Implicit Euler time stepping ──────────────────────────────────────────────
+# The collocation RBF-PU derivative and Laplacian operators both have spurious
+# positive-real eigenvalues from the local RBF-PS matrices on each patch:
+#   λ_adv_pos  ≈  17 s⁻¹   (advection operator)
+#   λ_Lap_pos  ≈ 1600 s⁻¹  (confirmed: nu=0.01*Lap doubled the growth rate)
+#
+# For any explicit scheme, a positive-real eigenvalue grows every step
+# regardless of dt — reducing dt only slows the blow-up, never stops it.
+# Artificial viscosity using ApplyLap makes things worse because the PU
+# collocation Laplacian has its own large positive-real eigenvalue.
+#
+# Implicit Euler is L-stable: amplification = 1/|1 - dt*λ|.
+# For positive-real λ, this is stable only when dt*λ > 2 (so that |1-dt*λ|>1).
+# Requirement: dt > 2 / λ_adv_pos ≈ 2/17 ≈ 0.12.
+# Using dt=0.2: dt*λ_adv_pos ≈ 3.4 → amplification = 1/2.4 ≈ 0.42. Stable.
+#
+# Trade-off: implicit Euler damps physical (imaginary-axis) modes too.
+# At dt=0.2, the Gaussian (k~7, c~0.2) decays by ~0.96 per step → ~0.3x peak
+# after one revolution. The rotation is clearly visible; the decay is expected
+# and will be fixed by the Galerkin formulation.
+T          = 2.0 * np.pi / omega   # one full revolution
+dt         = 0.2
+n_steps    = int(round(T / dt))    # ~31 steps
+
+snapshots = [u.copy()]
+times     = [0.0]
+
+def advec_matvec(v):
+    # (I - dt * A_adv) v  where  A_adv = -(cx*Dx + cy*Dy)
+    dv = v + dt * (cx * Dx(v) + cy * Dy(v))
+    dv[boundary_nodes] = v[boundary_nodes]   # identity rows at boundary
+    return dv
+
 if rank == 0:
     t_start = MPI.Wtime()
 
-M, A = assemble_advection(comm, patches, N, cx_fn, cy_fn)
-
-if rank == 0:
-    t_assemble = MPI.Wtime()
-    print(f"Assembly complete in {t_assemble - t_start:.2f} s")
-
-# ── Apply Dirichlet BCs to M and A ────────────────────────────────────────────
-# For the system  (M + dt*A) u^{n+1} = M u^n, Dirichlet rows must enforce
-# u[bdy] = 0 at every step. We bake it in by zeroing boundary rows/cols
-# of both matrices and placing 1 on the diagonal of the system matrix.
-if rank == 0:
-    M_arr = M.toarray()
-    A_arr = A.toarray()
-
-    # Zero boundary rows and columns of M and A; set diagonal of M to 1
-    # so that the mass-weighted BC rows become: 1*u[bdy]^{n+1} = 0.
-    zeros_b = np.zeros(len(bdy_indices))
-    M_arr[bdy_indices, :] = 0.0
-    M_arr[:, bdy_indices] = 0.0
-    M_arr[bdy_indices, bdy_indices] = 1.0
-
-    A_arr[bdy_indices, :] = 0.0
-    A_arr[:, bdy_indices] = 0.0
-
-# ── Initial condition ─────────────────────────────────────────────────────────
-if rank == 0:
-    x0, y0, sigma = 0.5, 0.70, 0.07
-    u0 = np.exp(-((nodes[:, 0] - x0)**2 + (nodes[:, 1] - y0)**2) / (2.0 * sigma**2))
-    u0[bdy_indices] = 0.0
-    u = u0.copy()
-
-# ── Implicit Euler time stepping ──────────────────────────────────────────────
-# Galerkin system:   M (u^{n+1} - u^n)/dt + A u^{n+1} = 0
-#   =>  (M + dt*A) u^{n+1} = M u^n
-#
-# With the Galerkin mass matrix M (symmetric positive definite for interior DOFs)
-# and skew-symmetric-in-the-continuum A, the discrete eigenvalues of M^{-1}A are
-# purely imaginary for solid-body rotation — no spurious positive-real modes.
-# This means any A-stable scheme (e.g. Crank-Nicolson) conserves amplitude.
-# Implicit Euler is used here for simplicity; switch to CN for better accuracy.
-
-if rank == 0:
-    T       = 2.0 * np.pi / omega
-    dt      = 0.2
-    n_steps = int(round(T / dt))
-
-    snapshots = [u.copy()]
-    times     = [0.0]
-
-    t = 0.0
-    for step in range(n_steps):
-        lhs = M_arr + dt * A_arr
-        rhs = M_arr @ u
-        u = spsolve(lhs, rhs)
-        u[bdy_indices] = 0.0
-        t += dt
-        snapshots.append(u.copy())
-        times.append(t)
-
+t = 0.0
+for step in range(n_steps):
+    # Solve: (I - dt*A_adv) u^{n+1} = u^n
+    u, _ = gmres(comm, advec_matvec, u, x0=u.copy(),
+                 tol=1e-6, restart=50, maxiter=30)
+    t += dt
+    snapshots.append(u.copy())
+    times.append(t)
+    if rank == 0:
         idx = np.argmax(u)
         print(f"  step {step+1:3d}  t={t:.2f}  peak={u.max():.4f}"
-              f"  loc=({nodes[idx, 0]:.3f},{nodes[idx, 1]:.3f})")
+              f"  loc=({nodes[idx,0]:.3f},{nodes[idx,1]:.3f})")
 
+if rank == 0:
     t_end = MPI.Wtime()
-    print(f"Time stepping complete: {n_steps} steps in {t_end - t_assemble:.2f} s")
+    print(f"Time stepping complete: {n_steps} steps in {t_end - t_start:.2f} s")
 
     err = np.linalg.norm(u - u0) / np.linalg.norm(u0)
     print(f"Relative L2 error after one revolution: {err:.3e}")
