@@ -1,4 +1,4 @@
-# Weak Form Poisson via RBF-PU with Node-Based Quadrature
+# Weak Form Poisson via RBF-PU with Patch-Local Quadrature
 
 ## Context
 
@@ -105,86 +105,139 @@ This is trivial — just multiply the RHS by quadrature weights.
 
 ## 3. Computing Quadrature Weights
 
-### Chosen approach: Polynomial-exact weights
+### Design requirements
 
-Find minimum-norm weights $q$ satisfying:
+The quadrature weights $\{q_k\}$ must satisfy two requirements:
 
-$$\sum_{i=1}^N q_i \, x_i^a y_i^b = \int_0^1\int_0^1 x^a y^b \, dx\,dy = \frac{1}{(a+1)(b+1)}$$
+1. **Positive definite:** All $q_k > 0$, so that $Q = \mathrm{diag}(q)$ is SPD and $A = \sum_l D_l^T Q D_l$ is SPD on interior nodes.
+2. **Accuracy matching:** The quadrature error must not exceed the approximation error. The Gaussian RBF flat limit on $n$ nodes reproduces polynomials of degree $m$ (the unisolvent degree, $m \sim \sqrt{n}$ in 2D). The quadrature must be exact for polynomials of degree $m$ to avoid being the bottleneck.
 
-for all monomials $x^a y^b$ with $a + b \leq p$. This is an underdetermined system $V^T q = m$ solved by:
+### Why naive approaches fail
 
-$$q = V (V^T V)^{-1} m$$
+- **Minimum-norm global polynomial-exact weights** ($q = V(V^T V)^{-1} M$ globally): almost certainly produces negative weights for scattered nodes, breaking positive-definiteness.
+- **Voronoi cell areas**: always positive, but only $O(h^2)$ accurate. For the Gaussian RBF with unisolvent degree $m \gg 2$, the quadrature error dominates and caps overall accuracy at $O(h^2)$.
 
-Polynomial degree $p \sim 4$–$6$ is sufficient. Moments are analytic on the unit square.
+### Chosen approach: patch-local constrained QP
+
+Decompose the global integral using the partition of unity:
+$$\int_\Omega g \, dx = \sum_p \int_\Omega \bar{w}_p \, g \, dx \approx \sum_p \sum_{k \in p} \hat{q}_k^p \, \bar{w}_p(x_k) \, g(x_k)$$
+
+On each patch $p$, find positive local weights $\hat{q}^p$ that are polynomial-exact of degree $m$ over the patch support disk. Then assemble:
+$$\boxed{q_k = \sum_{p \ni k} \hat{q}^p_{l(k,p)} \cdot \bar{w}_p(x_k)}$$
+
+**Positivity:** $\hat{q}^p_k > 0$ (enforced by the QP) and $\bar{w}_p(x_k) > 0$ for all patch nodes (nodes lie strictly inside the support), so every $q_k > 0$.
+
+**Accuracy:** Polynomial-exact quadrature of degree $m$ applied to an analytic integrand gives error $O((h/\rho)^{m+1})$ for some $\rho > 1$, which is spectrally convergent in $m$. Since the flat-limit Gaussian approximation also converges at this rate in $m$, the quadrature does not degrade the method's accuracy.
+
+**Patch-parallel:** Each patch's QP is solved independently. The global assembly requires one `Allreduce`.
+
+**Feasibility:** By a Tchakaloff-type argument, for well-distributed Poisson disc nodes with $n \gg \binom{m+2}{2}$, positive polynomial-exact weights almost certainly exist. Fall back to Voronoi weights for any patch where the QP is infeasible (degenerate configurations).
+
+### Step-by-step local QP on patch $p$
+
+**1. Determine the polynomial degree** $m$: the largest $m$ such that $\binom{m+2}{2} \leq n$ and the local Vandermonde has full rank. For $n = 50$: $m = 8$ (since $\binom{10}{2} = 45 \leq 50 < 55 = \binom{11}{2}$).
+
+**2. Build the local Vandermonde** in patch-centered coordinates $\xi_k = x_k^p - c_p$:
+$$(P^p)_{k,\alpha} = \xi_k^a \eta_k^b, \quad |\alpha| = a + b \leq m, \quad P^p \in \mathbb{R}^{n \times M}$$
+
+**3. Compute disk moments analytically** over $D(0, R_p)$:
+$$M^p_\alpha = \int_{D(0,R_p)} \xi^a \eta^b \, d\xi \, d\eta = \begin{cases} \dfrac{2 R_p^{a+b+2} \,\Gamma\!\left(\frac{a+1}{2}\right)\Gamma\!\left(\frac{b+1}{2}\right)}{\Gamma\!\left(\frac{a+b}{2}+2\right)} & a, b \text{ both even} \\[6pt] 0 & \text{otherwise} \end{cases}$$
+
+**4. Solve the QP:**
+$$\hat{q}^p = \arg\min_{q \geq 0} \left\| q - \frac{\pi R_p^2}{n}\mathbf{1} \right\|_2^2 \quad \text{subject to} \quad (P^p)^T q = M^p$$
+
+This is a small convex QP: $n \sim 50$ unknowns, $M \leq 45$ equality constraints. Use `scipy.optimize.lsq_linear`, `quadprog`, or `cvxpy`.
 
 ---
 
 ## 4. Matrix-Free Weak Laplacian Operator
 
 ### The forward derivative (existing)
-`ApplyDeriv` computes $\mathbf{D}_k u$. Per patch $p$:
+
+`ApplyDeriv` computes $v = D_l u$. Per patch $p$, contributing to nodes $i \in \text{idx}_p$:
 
 ```
-(D_k u)_i += w_bar_p[i] * (D_k^p @ u_p)[i] + gw_bar_p[i,k] * u_p[i]
+result_local[idx] += w_bar * (D[l] @ u[idx]) + gw_bar[:, l] * u[idx]
 ```
 
-### The adjoint derivative (new — needed for $\mathbf{D}_k^T$)
-Per patch $p$, the adjoint acting on vector $g$:
+then `Allreduce`.
+
+### Deriving the adjoint derivative
+
+The global derivative matrix has entries:
+$$(\mathbf{D}_l)_{ij} = \sum_{p:\, i,j \in p} \bar{w}_p(x_i)\,(D_l^p)_{l(i,p),\,l(j,p)} + \delta_{ij} \sum_{p \ni i} (\partial_l \bar{w}_p)(x_i)$$
+
+Transposing and collecting by patch:
+$$(D_l^T g)_j = \sum_{p \ni j} \left[ \bigl((D_l^p)^T (\bar{w}_p \odot g_p)\bigr)_{l(j,p)} + (\partial_l \bar{w}_p)(x_j)\, g_j \right]$$
+
+`ApplyDerivAdj` per patch, contributing to nodes $j \in \text{idx}_p$:
 
 ```
-(D_k^T g)_j += (D_k^p)^T @ (w_bar_p * g_p)[j] + gw_bar_p[j,k] * g_p[j]
+result_local[idx] += D[l].T @ (w_bar * g[idx]) + gw_bar[:, l] * g[idx]
 ```
 
-Key differences from forward:
-1. PU weight multiplies the **input** $g$ (not the output of $D_k^p$)
-2. Local derivative matrix is **transposed**: $(D_k^p)^T$
+then `Allreduce`.
+
+Key differences from the forward:
+1. `w_bar` multiplies the **input** $g_p$ before the matrix multiply, not the output after
+2. The local matrix is **transposed**: $(D_l^p)^T$
+3. The `gw_bar` term is structurally identical to the forward
 
 ### Full weak Laplacian application: $Au = \sum_l D_l^T Q D_l u$
 
 ```python
-def weak_lap(u):
-    result = zeros(N)
+def ApplyWeakLap(u):
+    result = np.zeros(N)
     for l in range(d):
-        g = D_l(u)              # forward derivative (existing ApplyDeriv)
-        g = q * g               # multiply by quadrature weights
-        result += D_l_T(g)      # adjoint derivative (new)
-    # boundary conditions
-    result[bc_nodes] = u[bc_nodes]
+        g = ApplyDeriv(l, u)           # g = D_l u          [Allreduce]
+        g = q * g                       # g = Q D_l u        [local, no comm]
+        result += ApplyDerivAdj(l, g)  # result += D_l^T g  [Allreduce]
+    result[bc_nodes] = u[bc_nodes]     # Dirichlet BCs
     return result
 ```
+
+Total MPI communication: $2d$ `Allreduce` calls per operator application — the same as the strong-form Laplacian.
+
+### Symmetry and solver choice
+
+$A = \sum_l D_l^T Q D_l$ is symmetric positive definite on interior nodes. The row-replacement boundary condition enforcement breaks exact symmetry of the assembled operator, so **GMRES is the safe default**. CG is possible if BCs are symmetrized (zeroing the corresponding columns as well as rows).
 
 ---
 
 ## 5. Implementation Plan
 
 ### Files to modify
-- `source/Quadrature.py` — implement quadrature weight computation
+- `source/Quadrature.py` — implement patch-local QP weight computation and global assembly
 - `source/Operators.py` — add `ApplyDerivAdj` and `ApplyWeakLap`
 - `PoissonDriver.py` — switch to weak form operator and load vector
 
 ### Step 1: Quadrature weights in `Quadrature.py`
-Implement polynomial-exact quadrature weight computation:
-- Build Vandermonde matrix for monomials up to degree $p$
-- Compute moments analytically for unit square
-- Solve minimum-norm system
+
+Implement `PatchLocalWeights(comm, patches, N)`:
+- For each local patch: determine $m$, build $P^p$, compute $M^p$ analytically, solve QP
+- Assemble global weights: `q_local[idx] += q_hat * w_bar`, then `Allreduce`
+- Store `patch.q_hat` on each patch object for the assembly step
 
 ### Step 2: Adjoint derivative in `Operators.py`
+
 Implement `ApplyDerivAdj(comm, patches, N, k, boundary_groups, BCs)`:
-- Same loop structure as `ApplyDeriv`
-- Transpose the local matrix, swap the weight multiplication order
+- Same loop and `Allreduce` structure as `ApplyDeriv`
+- Per patch: `result_local[idx] += D[k].T @ (w_bar * g[idx]) + gw_bar[:, k] * g[idx]`
+- No BC enforcement needed on the adjoint (BCs are enforced only in `ApplyWeakLap`)
 
 ### Step 3: Weak Laplacian in `Operators.py`
-Implement `ApplyWeakLap(comm, patches, N, quad_weights, boundary_groups, BCs)`:
-- For each direction: forward deriv -> weight multiply -> adjoint deriv
-- Sum over directions
-- Enforce Dirichlet BCs
+
+Implement `ApplyWeakLap(comm, patches, N, q, boundary_groups, BCs)`:
+- For each direction $l$: forward deriv → pointwise weight multiply → adjoint deriv
+- Sum over directions, then enforce Dirichlet BCs by row replacement
 
 ### Step 4: Update `PoissonDriver.py`
-- Compute quadrature weights after setup
+- Call `PatchLocalWeights` after `Setup`
 - Use `ApplyWeakLap` instead of `ApplyLap`
 - Set `rhs = q * f` instead of `rhs = f`
 
 ### Verification
 - Solve Poisson with $u = \sin(2\pi x)\sin(2\pi y)$, compare errors to strong form
-- Check that the weak operator is symmetric: $\langle Au, v \rangle = \langle u, Av \rangle$ for random $u, v$
-- Inspect eigenvalue spectrum (should be real negative — no spurious positive eigenvalues)
+- Check symmetry: $\langle Au, v \rangle = \langle u, Av \rangle$ for random interior $u, v$
+- Inspect eigenvalue spectrum: should be real negative with no spurious positive eigenvalues
+- Confirm $q_k > 0$ for all nodes after assembly
