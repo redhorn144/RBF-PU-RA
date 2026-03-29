@@ -39,8 +39,8 @@ def rhs(nodes):
     return -2.0 * np.exp(nodes[:, 0] + nodes[:, 1])
 
 # ── Parameters ─────────────────────────────────────────────────────────────────
-NODE_SPACING    = 0.01
-NODES_PER_PATCH = 30
+NODE_SPACING    = 0.005
+NODES_PER_PATCH = 40
 GMRES_TOL       = 1e-8
 
 # ── Build nodes (rank 0, then broadcast) ──────────────────────────────────────

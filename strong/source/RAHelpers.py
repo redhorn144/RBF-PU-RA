@@ -65,7 +65,11 @@ def GenEr(x):
 def ConditionObjective(e, x):
     re_phi = GenPhi(x, e)
     im_phi = GenPhi(x, e * 1j)
-    return np.linalg.norm(im_phi, ord=np.inf)/np.linalg.norm(np.linalg.inv(re_phi), ord=np.inf)
+    try:
+        inv_re_phi = np.linalg.inv(re_phi)
+    except np.linalg.LinAlgError:
+        return np.inf
+    return np.linalg.norm(im_phi, ord=np.inf)/np.linalg.norm(inv_re_phi, ord=np.inf)
 
 def GenEs(K):
     K = int(K)

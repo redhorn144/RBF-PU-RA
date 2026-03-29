@@ -22,7 +22,7 @@ nodes = comm.bcast(nodes, root=0)
 normals = comm.bcast(normals, root=0)
 groups = comm.bcast(groups, root=0)
 
-patches, patches_for_rank = Setup(comm, nodes, normals, 20, eval_epsilon=0.01)
+patches, patches_for_rank = Setup(comm, nodes, normals, 30, eval_epsilon=0.01)
 print(f"Rank {rank} setup complete with {len(patches)} patches.")
 BCs = np.array(["dirichlet"])
 bc_groups = np.array([groups['boundary:all']])
