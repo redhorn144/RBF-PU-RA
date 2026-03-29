@@ -26,7 +26,7 @@ N = nodes.shape[0]
 boundary_nodes = groups['boundary:all']
 
 # ── Patch setup ───────────────────────────────────────────────────────────────
-patches, _ = Setup(comm, nodes, normals, 80)
+patches, _ = Setup(comm, nodes, normals, 30, eval_epsilon=0.02)
 print(f"Rank {rank} setup complete with {len(patches)} patches.")
 
 # ── Derivative operators ──────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ u = u0.copy()
 # after one revolution. The rotation is clearly visible; the decay is expected
 # and will be fixed by the Galerkin formulation.
 T          = 2.0 * np.pi / omega   # one full revolution
-dt         = 0.2
+dt         = 0.01
 n_steps    = int(round(T / dt))    # ~31 steps
 
 snapshots = [u.copy()]

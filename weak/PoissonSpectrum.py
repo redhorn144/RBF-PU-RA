@@ -26,7 +26,7 @@ patches, patches_for_rank = Setup(comm, nodes, normals, 50)
 print(f"Rank {rank} setup complete with {len(patches)} patches.")
 BCs = np.array(["dirichlet"])
 bc_groups = np.array([groups['boundary:all']])
-Lap = ApplyLap(comm, patches, nodes.shape[0], bc_groups, BCs)
+Lap = ApplyLap(comm, patches, nodes.shape[0])
 
 rhs = -2*np.pi**2*np.sin(np.pi * nodes[:, 0]) * np.sin(np.pi * nodes[:, 1])
 rhs[bc_groups[0]] = 0.0

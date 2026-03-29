@@ -11,11 +11,11 @@ from PUWeights import NormalizeWeights
 ###################################
 # General setup function to create patches, compute their matrices, and normalize weights
 ###################################
-def Setup(comm, nodes, normals, nodes_per_patch, overlap = 3):
+def Setup(comm, nodes, normals, nodes_per_patch, overlap = 3, eval_epsilon = 0, K = 64, n = 16, m = 48):
     rank = comm.Get_rank()
     
     if rank == 0:
-        centers, radii, patch_node_inds = SetupPatches(nodes, nodes_per_patch, overlap=3)
+        centers, radii, patch_node_inds = SetupPatches(nodes, nodes_per_patch, overlap=overlap)
     else:
         centers = None
         radii = None
@@ -35,7 +35,7 @@ def Setup(comm, nodes, normals, nodes_per_patch, overlap = 3):
         patch_center = centers[i]
         patch_radius = radii[i]
         patch_nodes_indices = patch_node_inds[i]
-        Patch_Phi, Patch_D, Patch_L = StableFlatMatrices(patch_nodes)
+        Patch_Phi, Patch_D, Patch_L = StableFlatMatrices(patch_nodes, K = K, n = n, m = m, eval_epsilon=eval_epsilon)
         patch = Patch(center=patch_center, radius=patch_radius, node_indices=patch_nodes_indices, normals=patch_normals,
                         nodes=patch_nodes, Phi=Patch_Phi, D=Patch_D, L=Patch_L, w_bar=None, gw_bar=None, lw_bar=None)
         patches.append(patch)
@@ -43,7 +43,7 @@ def Setup(comm, nodes, normals, nodes_per_patch, overlap = 3):
     # Normalize PU weights across all ranks
     NormalizeWeights(comm, patches, patches_for_rank, nodes)
 
-    print(f"Rank {rank} has {len(patches)} patches.")
+    #print(f"Rank {rank} has {len(patches)} patches.")
     
     return patches, patches_for_rank
 

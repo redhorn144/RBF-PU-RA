@@ -17,3 +17,4 @@ class Patch:
     w_bar: np.ndarray           # (n_local,)     normalized C2 PU weight
     gw_bar: np.ndarray          # (n_local, d)   gradient of normalized weight
     lw_bar: np.ndarray          # (n_local,)     Laplacian of normalized weight
+    q_hat: np.ndarray = None    # (n_local,)     local quadrature weights (set by Quadrature)

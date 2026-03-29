@@ -11,7 +11,7 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
 if rank == 0:
-    nodes, normals, groups = PoissonSquareOne(0.01)
+    nodes, normals, groups = PoissonSquareOne(0.025)
     print(f"Rank {rank} generated {nodes.shape[0]} nodes.")
 else:
     nodes = None
@@ -22,7 +22,7 @@ nodes = comm.bcast(nodes, root=0)
 normals = comm.bcast(normals, root=0)
 groups = comm.bcast(groups, root=0)
 
-patches, patches_for_rank = Setup(comm, nodes, normals, 30)
+patches, patches_for_rank = Setup(comm, nodes, normals, 20, eval_epsilon=0.01)
 print(f"Rank {rank} setup complete with {len(patches)} patches.")
 BCs = np.array(["dirichlet"])
 bc_groups = np.array([groups['boundary:all']])
@@ -35,7 +35,7 @@ rhs[bc_groups[0]] = 0.0
 print(f"Rank {rank} starting GMRES solve...")
 if rank == 0:
     t_start = MPI.Wtime()
-solution, num_iters = gmres(comm, Lap, rhs, tol=1e-4, restart=100, maxiter=100)
+solution, num_iters = gmres(comm, Lap, rhs, tol=1e-8, restart=100, maxiter=100)
 
 if rank == 0:
     t_end = MPI.Wtime()

@@ -11,7 +11,7 @@ from scipy import optimize
 # Called on each rank after the patches 
 # are generated and boadcast.
 ######################################
-def StableFlatMatrices(nodes, K = 64, n = 16, m = 48):
+def StableFlatMatrices(nodes, K = 64, n = 16, m = 48, eval_epsilon = 0):
     Er = GenEr(nodes)
     es = GenEs(K)
     d = nodes.shape[1]
@@ -21,7 +21,7 @@ def StableFlatMatrices(nodes, K = 64, n = 16, m = 48):
     phis = np.empty((len(es), N, N), dtype=complex)
     grads = np.empty((len(es), d, N, N), dtype=complex)
     laps = np.empty((len(es), N, N), dtype=complex)
-    
+
     for i in range(len(es)):
         phis[i], grads[i], laps[i] = GenMatrices(nodes, es[i] * Er)
 
@@ -31,18 +31,28 @@ def StableFlatMatrices(nodes, K = 64, n = 16, m = 48):
     laps_flat = laps.reshape(len(es), -1)
 
     #generate the rational approximant coefficients
-    a_phi, _ = GenRAab(phis_flat, es, n, m)
-    a_lap, _ = GenRAab(laps_flat, es, n, m)
+    a_phi, b_phi = GenRAab(phis_flat, es, n, m)
+    a_lap, b_lap = GenRAab(laps_flat, es, n, m)
 
     a_grad = np.empty((d, m+1, N*N))
+    b_grad = np.empty((d, n+1))
     for i in range(d):
-        a_grad[i], _ = GenRAab(grads_flat[:, i, :], es, n, m)
+        a_grad[i], b_grad[i] = GenRAab(grads_flat[:, i, :], es, n, m)
 
-    # flat limit = a_0 coefficients, cast to real (imag parts are numerical noise)
-    phi_stable = a_phi[0].real.reshape(N, N)
-    lap_stable = a_lap[0].real.reshape(N, N)
-    grad_stable = a_grad[:, 0, :].real.reshape(d, N, N)
-    
+    if eval_epsilon == 0:
+        # flat limit = a_0 coefficients, cast to real (imag parts are numerical noise)
+        phi_stable = a_phi[0].real.reshape(N, N)
+        lap_stable = a_lap[0].real.reshape(N, N)
+        grad_stable = a_grad[:, 0, :].real.reshape(d, N, N)
+    else:
+        # evaluate rational approximant at eval_epsilon, scaled by Er
+        eps_scaled = eval_epsilon * Er
+        phi_stable = EvalRA(a_phi, b_phi, eps_scaled).reshape(N, N)
+        lap_stable = EvalRA(a_lap, b_lap, eps_scaled).reshape(N, N)
+        grad_stable = np.empty((d, N, N))
+        for i in range(d):
+            grad_stable[i] = EvalRA(a_grad[i], b_grad[i], eps_scaled).reshape(N, N)
+
     return phi_stable, grad_stable, lap_stable
 
 ######################################
@@ -154,3 +164,42 @@ def GenRAab(fj_mat, es, n, m):
     b = np.concatenate([[1.0], b_coeffs])
 
     return a, b
+
+def polyval2(p, x):
+    """
+    Evaluate the even polynomial
+      y = p[0] + p[1]*x^2 + p[2]*x^4 + ... + p[N]*x^(2N)
+    using Horner's method.
+    """
+    y = np.zeros_like(x, dtype=complex if np.iscomplexobj(p) else float)
+    x2 = x ** 2
+    for j in range(len(p) - 1, -1, -1):
+        y = x2 * y + p[j]
+    return y
+
+
+def EvalRA(a, b, epsilon):
+    """
+    Evaluate the vector-valued rational approximant at given epsilon values.
+
+    Parameters
+    ----------
+    a : (m+1, M) array
+        Numerator coefficients (from GenRAab).
+    b : (n+1,) array
+        Denominator coefficients with b[0]=1 (from GenRAab).
+    epsilon : scalar or 1-D array
+        Shape parameter value(s) to evaluate at (real, scaled by Er).
+
+    Returns
+    -------
+    R : (M, len(epsilon)) array
+        Rational approximant evaluated at each epsilon for each component.
+    """
+    epsilon = np.atleast_1d(np.asarray(epsilon, dtype=float))
+    M = a.shape[1]
+    denom = polyval2(b, epsilon)  # (len(epsilon),)
+    R = np.zeros((M, len(epsilon)))
+    for j in range(M):
+        R[j, :] = polyval2(a[:, j], epsilon) / denom
+    return R
