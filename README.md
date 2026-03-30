@@ -53,7 +53,6 @@ strong/                    # Strong-form (collocation) solvers
     SquareDomain.py        # Node generation for the unit square
     StrangeDomain.py       # Node generation for a star-shaped domain
   PoissonDriver.py         # Poisson equation on [0,1]^2
-  AdvecDriver.py           # Solid-body rotation (advection) with implicit Euler
   PoissonStarDomain.py     # Poisson on a star-shaped domain (manufactured solution)
   PoissonSpectralConv.py   # Spectral convergence study (error vs. nodes per patch)
   PoissonSpectrum.py       # Eigenvalue analysis of the discrete Laplacian
@@ -61,6 +60,14 @@ weak/                      # Weak-form (Galerkin) solvers (in development)
 ```
 
 ## Quickstart
+
+### Platforms
+| Platform | Status | Notes |
+|----------|--------|-------|
+| Linux | ✓ Recommended | Best supported and tested |
+| Windows | ✓ Supported | Use Windows Subsystem for Linux (WSL) |
+| macOS | ⚠ Untested | Should work but not officially tested |
+
 
 ### Prerequisites
 
@@ -70,7 +77,7 @@ Python 3.10+ and an MPI implementation (e.g. OpenMPI or MPICH). Install dependen
 cd strong
 python -m venv myenv
 source myenv/bin/activate
-pip install numpy scipy matplotlib mpi4py numba
+pip install numpy scipy matplotlib mpi4py numba treverhines-rbf
 ```
 
 ### Running the Poisson Solver
@@ -104,15 +111,6 @@ mpiexec -n 4 python PoissonSpectralConv.py
 
 Saves a convergence plot to `figures/poisson_spectral_conv.png`.
 
-### Advection Example
-
-Solid-body rotation of a Gaussian bump, time-stepped with implicit Euler:
-
-```bash
-mpiexec -n 4 python AdvecDriver.py
-```
-
-Saves an animation to `advection.gif`.
 
 ### Key Parameters
 
