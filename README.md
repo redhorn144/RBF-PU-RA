@@ -6,7 +6,7 @@ Meshfree PDE solvers using **Radial Basis Function Partition of Unity (RBF-PU)**
 
 ### RBF Collocation
 
-Radial basis function (RBF) methods approximate a function as a linear combination of translates of a radially-symmetric kernel. Given nodes $\{x_j\}_{j=1}^{N}$, an interpolant takes the form
+Radial basis function (RBF) methods approximate a function as a linear combination of translates of a radially-symmetric kernel. Given nodes $\{ x_j \}_{j=1}^{N}$, an interpolant takes the form
 
 $$s(x) = \sum_{j=1}^{N} \lambda_j \phi(\|x - x_j\|)$$
 
