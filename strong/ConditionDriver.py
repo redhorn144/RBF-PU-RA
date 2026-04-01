@@ -132,8 +132,8 @@ if rank == 0:
 
     fig, ax = plt.subplots(figsize=(7, 5))
 
-    ax.loglog(Ns, cond_pura,   'o-',  color='steelblue',  label=r'RBF-PU-RA  (flat limit, $\varepsilon \to 0$)')
-    ax.loglog(Ns, cond_direct, 's--', color='firebrick',   label=rf'Direct RBF  ($\varepsilon = {DIRECT_EPSILON}$)')
+    ax.semilogy(Ns, cond_pura,   'o-',  color='steelblue',  label=r'RBF-PU-RA  (flat limit, $\varepsilon \to 0$)')
+    ax.semilogy(Ns, cond_direct, 's--', color='firebrick',   label=rf'Direct RBF  ($\varepsilon = {DIRECT_EPSILON}$)')
 
     ax.set_xlabel('$N$ (number of nodes)',  fontsize=12)
     ax.set_ylabel('Condition number',        fontsize=12)

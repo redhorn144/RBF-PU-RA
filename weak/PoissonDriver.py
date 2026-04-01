@@ -12,7 +12,7 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
 if rank == 0:
-    nodes, normals, groups = PoissonSquareOne(0.025)
+    nodes, normals, groups = PoissonSquareOne(0.015)
     print(f"Rank {rank} generated {nodes.shape[0]} nodes.")
 else:
     nodes = None
@@ -26,7 +26,7 @@ groups = comm.bcast(groups, root=0)
 N = nodes.shape[0]
 bc_nodes = groups['boundary:all']
 
-patches, patches_for_rank = Setup(comm, nodes, normals, 100)
+patches, patches_for_rank = Setup(comm, nodes, normals, 150)
 print(f"Rank {rank} setup complete with {len(patches)} patches.")
 
 # Compute quadrature weights
