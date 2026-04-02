@@ -51,3 +51,53 @@ def GenEvalPhi(eval_points, x, e):
     r = np.linalg.norm(diff, axis=2)
     return np.exp(-(e * r) ** 2)
 
+def GenEvalPhixk(eval_points, x, e, k):
+    """(M x N) derivative of Gaussian kernel w.r.t. x_k, evaluated at eval_points."""
+    diff = eval_points[:, np.newaxis, :] - x[np.newaxis, :, :]
+    r = np.linalg.norm(diff, axis=2)
+    diff_k = diff[:, :, k]
+    return -2 * e**2 * diff_k * np.exp(-(e * r) ** 2)
+
+# ---------------------------------------------------------------------------
+# Polyharmonic spline (PHS) helpers — parameter-free off-node evaluation.
+# ---------------------------------------------------------------------------
+
+def phs_kernel(pts_a, pts_b, s):
+    """(M, N) PHS kernel matrix phi_ij = ||pts_a_i - pts_b_j||^s."""
+    diff = pts_a[:, np.newaxis, :] - pts_b[np.newaxis, :, :]
+    r = np.linalg.norm(diff, axis=2)
+    return r ** s
+
+def phs_kernel_grad(eval_pts, nodes, s, k):
+    """(M, N) gradient of PHS kernel w.r.t. x_k of the eval point."""
+    diff = eval_pts[:, np.newaxis, :] - nodes[np.newaxis, :, :]
+    r = np.linalg.norm(diff, axis=2)
+    diff_k = diff[:, :, k]
+    safe_r = np.where(r == 0, 1.0, r)
+    result = s * safe_r ** (s - 2) * diff_k
+    result[r == 0] = 0.0
+    return result
+
+def phs_poly_block(pts, deg):
+    """(M, q) Pascal-triangle monomial block up to total degree deg."""
+    cols = []
+    for total in range(deg + 1):
+        for px in range(total + 1):
+            py = total - px
+            cols.append(pts[:, 0] ** px * pts[:, 1] ** py)
+    return np.column_stack(cols)
+
+def phs_poly_block_grad(pts, deg, k):
+    """(M, q) derivative of the monomial block w.r.t. x_k."""
+    cols = []
+    for total in range(deg + 1):
+        for px in range(total + 1):
+            py = total - px
+            if k == 0:
+                cols.append(np.zeros(len(pts)) if px == 0
+                            else px * pts[:, 0] ** (px - 1) * pts[:, 1] ** py)
+            else:
+                cols.append(np.zeros(len(pts)) if py == 0
+                            else py * pts[:, 0] ** px * pts[:, 1] ** (py - 1))
+    return np.column_stack(cols)
+

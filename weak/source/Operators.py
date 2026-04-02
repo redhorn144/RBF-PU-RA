@@ -2,6 +2,126 @@ import numpy as np
 from mpi4py import MPI
 
 #####################################
+# Non-nodal Gauss-point operators
+# All four operate on the global Gauss-point index from GaussPointsAndWeights.
+# Each patch stores gauss_local_idx, E_gauss, GE_gauss, w_bar_gauss,
+# gw_bar_gauss (set by SetupGaussEval).
+#####################################
+
+def ApplyGaussDerivRow(comm, patches, N, M_q, k):
+    """Full PU derivative of u in direction k at all M_q Gauss points. (N,)→(M_q,)"""
+    def eval_k(u):
+        result_local = np.zeros(M_q)
+        for patch in patches:
+            gidx = patch.gauss_local_idx
+            if len(gidx) == 0:
+                continue
+            u_local = u[patch.node_indices]
+            interp  = patch.E_gauss     @ u_local
+            grad_k  = patch.GE_gauss[k] @ u_local
+            result_local[gidx] += (patch.w_bar_gauss       * grad_k
+                                   + patch.gw_bar_gauss[:, k] * interp)
+        result = np.zeros(M_q)
+        comm.Allreduce(result_local, result)
+        return result
+    return eval_k
+
+
+def ApplyGaussDerivAdj(comm, patches, N, M_q, k):
+    """Adjoint of ApplyGaussDerivRow. (M_q,)→(N,)"""
+    def eval_k_adj(g):
+        result_local = np.zeros(N)
+        for patch in patches:
+            gidx = patch.gauss_local_idx
+            if len(gidx) == 0:
+                continue
+            g_local = g[gidx]
+            result_local[patch.node_indices] += (
+                patch.GE_gauss[k].T @ (patch.w_bar_gauss       * g_local)
+              + patch.E_gauss.T    @ (patch.gw_bar_gauss[:, k] * g_local)
+            )
+        result = np.zeros(N)
+        comm.Allreduce(result_local, result)
+        return result
+    return eval_k_adj
+
+
+def ApplyGaussEvalRow(comm, patches, N, M_q):
+    """PU interpolation at all M_q Gauss points (E_0). (N,)→(M_q,)"""
+    def eval0(u):
+        result_local = np.zeros(M_q)
+        for patch in patches:
+            gidx = patch.gauss_local_idx
+            if len(gidx) == 0:
+                continue
+            u_local = u[patch.node_indices]
+            result_local[gidx] += patch.w_bar_gauss * (patch.E_gauss @ u_local)
+        result = np.zeros(M_q)
+        comm.Allreduce(result_local, result)
+        return result
+    return eval0
+
+
+def ApplyGaussEvalAdj(comm, patches, N, M_q):
+    """Adjoint of E_0. (M_q,)→(N,)  Used for RHS assembly and mass matrix."""
+    def eval0_adj(g):
+        result_local = np.zeros(N)
+        for patch in patches:
+            gidx = patch.gauss_local_idx
+            if len(gidx) == 0:
+                continue
+            g_local = g[gidx]
+            result_local[patch.node_indices] += patch.E_gauss.T @ (patch.w_bar_gauss * g_local)
+        result = np.zeros(N)
+        comm.Allreduce(result_local, result)
+        return result
+    return eval0_adj
+
+
+def ApplyWeakLap(comm, patches, N, gauss_wts, bc_nodes=None):
+    """
+    Weak Laplacian  A = Σ_l E_l^T diag(gauss_wts) E_l,  optionally with
+    Dirichlet BC row replacement.  Returns a closure (N,)→(N,).
+    """
+    M_q = len(gauss_wts)
+    d   = patches[0].nodes.shape[1] if patches else 2
+    Dk  = [ApplyGaussDerivRow(comm, patches, N, M_q, k) for k in range(d)]
+    DkT = [ApplyGaussDerivAdj(comm, patches, N, M_q, k) for k in range(d)]
+
+    def weaplap(u):
+        result = np.zeros(N)
+        for l in range(d):
+            result += DkT[l](gauss_wts * Dk[l](u))
+        if bc_nodes is not None:
+            result[bc_nodes] = u[bc_nodes]
+        return result
+    return weaplap
+
+
+def ApplyGaussMassMul(comm, patches, N, gauss_wts):
+    """Mass matrix  M = E_0^T diag(gauss_wts) E_0.  Returns (N,)→(N,)."""
+    M_q = len(gauss_wts)
+    E0  = ApplyGaussEvalRow(comm, patches, N, M_q)
+    E0T = ApplyGaussEvalAdj(comm, patches, N, M_q)
+    def massmul(u):
+        return E0T(gauss_wts * E0(u))
+    return massmul
+
+
+def AssembleGaussRHS(comm, patches, N, gauss_pts, gauss_wts, f_fn):
+    """
+    Assemble  b = E_0^T (gauss_wts * f(gauss_pts)).
+
+    Parameters
+    ----------
+    f_fn : callable (M_q, d) → (M_q,)
+    """
+    M_q = len(gauss_wts)
+    E0T = ApplyGaussEvalAdj(comm, patches, N, M_q)
+    return E0T(gauss_wts * f_fn(gauss_pts))
+
+
+#####################################
 # Matrix free operators for the global system
 # to be applied in the Iterative solver
 #####################################

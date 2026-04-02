@@ -4,9 +4,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 from BaseHelpers import *
 from Patch import Patch
 from scipy.spatial import cKDTree
-from RAHelpers import StableFlatMatrices
+from RAHelpers import StableFlatMatrices, PHSEvalRows
 from mpi4py import MPI
-from PUWeights import NormalizeWeights
+from PUWeights import NormalizeWeights, C2Weight, C2WeightGradient
 
 ###################################
 # General setup function to create patches, compute their matrices, and normalize weights
@@ -47,6 +47,70 @@ def Setup(comm, nodes, normals, nodes_per_patch, overlap = 3):
     
     return patches, patches_for_rank
 
+
+
+###################################
+# SetupGaussEval: per-patch PHS evaluation data at global Gauss points.
+# Must be called after Setup() and GaussPointsAndWeights().
+###################################
+def SetupGaussEval(comm, patches, gauss_pts):
+    """
+    For each patch, find the global Gauss points inside its support, compute
+    normalized PU weights there, and build PHS eval + gradient matrices.
+
+    PU normalization W(x_q) is computed locally from allgathered patch
+    geometries — no Allreduce needed beyond the allgather of centers/radii.
+
+    Parameters
+    ----------
+    comm      : MPI communicator
+    patches   : list of Patch objects (w_bar etc. already set by Setup)
+    gauss_pts : (M_q, 2) global Gauss point coordinates from GaussPointsAndWeights
+    """
+    M_q = gauss_pts.shape[0]
+    d   = gauss_pts.shape[1]
+
+    # Allgather all patch geometries so W(x_q) can be computed without Allreduce
+    local_centers = np.array([p.center for p in patches]) if patches else np.empty((0, d))
+    local_radii   = np.array([p.radius for p in patches]) if patches else np.empty(0)
+    all_centers   = np.vstack(comm.allgather(local_centers))
+    all_radii     = np.concatenate(comm.allgather(local_radii))
+
+    gauss_tree = cKDTree(gauss_pts)
+
+    for patch in patches:
+        gidx = np.array(gauss_tree.query_ball_point(patch.center, patch.radius), dtype=int)
+
+        if len(gidx) == 0:
+            n_local = len(patch.node_indices)
+            patch.gauss_local_idx = np.empty(0, dtype=int)
+            patch.E_gauss         = np.empty((0, n_local))
+            patch.GE_gauss        = np.empty((d, 0, n_local))
+            patch.w_bar_gauss     = np.empty(0)
+            patch.gw_bar_gauss    = np.empty((0, d))
+            continue
+
+        local_gauss = gauss_pts[gidx]
+
+        # W(x_q) = Σ_p' w_{p'}(x_q) — computed locally from allgathered geometry
+        W  = np.zeros(len(gidx))
+        gW = np.zeros((len(gidx), d))
+        for c, r in zip(all_centers, all_radii):
+            dist = np.linalg.norm(local_gauss - c, axis=1)
+            inside = dist < r
+            if not np.any(inside):
+                continue
+            W[inside]  += C2Weight(local_gauss[inside], c, r)
+            gW[inside] += C2WeightGradient(local_gauss[inside], c, r)
+        W = np.maximum(W, 1e-300)
+
+        w_raw  = C2Weight(local_gauss, patch.center, patch.radius)
+        gw_raw = C2WeightGradient(local_gauss, patch.center, patch.radius)
+
+        patch.gauss_local_idx = gidx
+        patch.w_bar_gauss     = w_raw / W
+        patch.gw_bar_gauss    = gw_raw / W[:, None] - w_raw[:, None] * gW / W[:, None]**2
+        patch.E_gauss, patch.GE_gauss = PHSEvalRows(local_gauss, patch.nodes)
 
 
 ####################################

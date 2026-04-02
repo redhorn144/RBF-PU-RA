@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.linalg as spla
-from BaseHelpers import GenPhi
-from BaseHelpers import GenMatrices
+from BaseHelpers import GenPhi, GenMatrices
+from BaseHelpers import phs_kernel, phs_kernel_grad, phs_poly_block, phs_poly_block_grad
 from scipy import optimize
 
 ######################################
@@ -44,6 +44,63 @@ def StableFlatMatrices(nodes, K = 64, n = 16, m = 48):
     grad_stable = a_grad[:, 0, :].real.reshape(d, N, N)
     
     return phi_stable, grad_stable, lap_stable
+
+######################################
+# PHSEvalRows: parameter-free off-node evaluation via PHS + polynomial augmentation.
+#
+# Cost per patch: O(N³ + d·M·N²)  vs  O(K²·n·M·N) for RA-based eval.
+# For K=64, n=16, N=50, M=800: ~4M vs ~2600M flops (~650× faster).
+# Accuracy: O(h^(poly_deg+1)) interpolation, O(h^poly_deg) gradients.
+######################################
+def PHSEvalRows(eval_points, nodes, s=5, poly_deg=2):
+    """
+    Compute (M×N) eval matrix E and (d×M×N) gradient matrices GE at off-node
+    eval_points using a PHS+polynomial interpolant.  No shape parameter needed.
+
+    Parameters
+    ----------
+    eval_points : (M, d) — off-node points (Gauss points)
+    nodes       : (N, d) — patch node positions
+    s           : PHS exponent (odd; 3, 5, or 7)
+    poly_deg    : polynomial augmentation degree
+
+    Returns
+    -------
+    E  : (M, N)
+    GE : (d, M, N)
+    """
+    N = nodes.shape[0]
+    M = eval_points.shape[0]
+    d = nodes.shape[1]
+
+    Phi_nn = phs_kernel(nodes, nodes, s)
+    P_n    = phs_poly_block(nodes, poly_deg)
+    q      = P_n.shape[1]
+
+    A = np.zeros((N + q, N + q))
+    A[:N, :N] = Phi_nn
+    A[:N, N:] = P_n
+    A[N:, :N] = P_n.T
+
+    lu = spla.lu_factor(A)
+
+    Phi_mn = phs_kernel(eval_points, nodes, s)
+    P_m    = phs_poly_block(eval_points, poly_deg)
+    K_mat  = np.hstack([Phi_mn, P_m])
+
+    C = spla.lu_solve(lu, K_mat.T)
+    E = C[:N, :].T
+
+    GE = np.empty((d, M, N))
+    for k in range(d):
+        dPhi = phs_kernel_grad(eval_points, nodes, s, k)
+        dP   = phs_poly_block_grad(eval_points, poly_deg, k)
+        dK   = np.hstack([dPhi, dP])
+        dC   = spla.lu_solve(lu, dK.T)
+        GE[k] = dC[:N, :].T
+
+    return E, GE
+
 
 ######################################
 # Helpers for RA method
@@ -125,10 +182,9 @@ def GenRAab(fj_mat, es, n, m):
     R_mat = R_mat[:m + 1, :]   # (m+1, m+1) upper triangular
 
     # --- Step 2: Left-multiply all F_j and g_j by Q^T ---
-    # FR is (K, n, M), gr is (K, M)
-    for j in range(M):
-        FR[:, :, j] = QT @ FR[:, :, j]
-        gr[:, j] = QT @ gr[:, j]
+    # FR is (K, n, M), gr is (K, M) — vectorized over M with tensordot
+    FR = np.tensordot(QT, FR, axes=([1], [0]))
+    gr = QT @ gr
 
     # --- Step 3: Separate top (rows 0..m) and bottom (rows m+1..K-1) ---
     FT = FR[:m + 1, :, :]         # (m+1, n, M) — for numerator back-sub

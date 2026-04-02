@@ -171,6 +171,53 @@ class DelaunayGaussQuadrature:
 # Public interface
 # ---------------------------------------------------------------------------
 
+def GaussPointsAndWeights(comm, patches, N, p=4):
+    """
+    Build global non-nodal Gauss points and weights via global Delaunay on
+    all N nodes (rank 0), then broadcast.  Degree of exactness 2p-1.
+
+    Parameters
+    ----------
+    comm    : MPI communicator
+    patches : list of Patch objects owned by this rank
+    N       : total number of global nodes
+    p       : GL points per direction
+
+    Returns
+    -------
+    gauss_pts : (M_q, 2)
+    gauss_wts : (M_q,)   positive weights; sum ≈ domain area
+    """
+    nodes_local = np.zeros((N, 2))
+    have_node   = np.zeros(N, dtype=bool)
+    for patch in patches:
+        idx = patch.node_indices
+        nodes_local[idx] = patch.nodes
+        have_node[idx]   = True
+
+    nodes_global = np.zeros((N, 2))
+    comm.Allreduce(nodes_local, nodes_global)
+    count = np.zeros(N)
+    comm.Allreduce(have_node.astype(float), count)
+    count = np.maximum(count, 1.0)
+    nodes_global /= count[:, None]
+
+    if comm.Get_rank() == 0:
+        quad = DelaunayGaussQuadrature(p=p, nodal=False)
+        gauss_pts, gauss_wts = quad.fit(nodes_global)
+        print(f"Non-nodal Gauss quadrature: p={p}, "
+              f"degree={quad.degree_of_exactness_estimate()}, "
+              f"n_pts={len(gauss_wts)}, "
+              f"min_w={gauss_wts.min():.3e}, sum_w={gauss_wts.sum():.6f}")
+    else:
+        gauss_pts = None
+        gauss_wts = None
+
+    gauss_pts = comm.bcast(gauss_pts, root=0)
+    gauss_wts = comm.bcast(gauss_wts, root=0)
+    return gauss_pts, gauss_wts
+
+
 def PatchLocalWeights(comm, patches, N, p=4):
     """
     Compute positive quadrature weights via Delaunay triangulation +

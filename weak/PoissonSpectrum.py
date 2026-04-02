@@ -2,9 +2,9 @@ import numpy as np
 from mpi4py import MPI
 import matplotlib.pyplot as plt
 from nodes.SquareDomain import PoissonSquareOne
-from source.Setup import Setup
-from source.Operators import ApplyDeriv, ApplyDerivAdj
-from source.Quadrature import PatchLocalWeights
+from source.Setup import Setup, SetupGaussEval
+from source.Operators import ApplyWeakLap, ApplyGaussMassMul, AssembleGaussRHS
+from source.Quadrature import GaussPointsAndWeights
 from source.Solver import gmres
 from source.Plotter import PlotSolution
 
@@ -16,7 +16,7 @@ if rank == 0:
 else:
     nodes = normals = groups = None
 
-nodes  = comm.bcast(nodes,   root=0)
+nodes   = comm.bcast(nodes,   root=0)
 normals = comm.bcast(normals, root=0)
 groups  = comm.bcast(groups,  root=0)
 
@@ -26,29 +26,20 @@ bc_nodes = groups['boundary:all']
 patches, patches_for_rank = Setup(comm, nodes, normals, 50)
 print(f"Rank {rank} setup complete with {len(patches)} patches.")
 
-# Quadrature weights
-q = PatchLocalWeights(comm, patches, N)
-if rank == 0:
-    print(f"Quadrature weights: min={q.min():.2e}, max={q.max():.2e}, "
-          f"all positive={np.all(q > 0)}")
+# Global Delaunay non-nodal Gauss quadrature (rank 0, then broadcast)
+gauss_pts, gauss_wts = GaussPointsAndWeights(comm, patches, N, p=4)
 
-# Weak Laplacian: A u = sum_l D_l^T Q D_l u  with Dirichlet row replacement
-d   = nodes.shape[1]
-Dk  = [ApplyDeriv(comm, patches, N, k)    for k in range(d)]
-DkT = [ApplyDerivAdj(comm, patches, N, k) for k in range(d)]
+# Per-patch PHS eval matrices at the global Gauss points
+SetupGaussEval(comm, patches, gauss_pts)
 
-def WeakLap(u):
-    result = np.zeros(N)
-    for l in range(d):
-        g = Dk[l](u)
-        g = q * g
-        result += DkT[l](g)
-    result[bc_nodes] = u[bc_nodes]
-    return result
+WeakLap = ApplyWeakLap(comm, patches, N, gauss_wts, bc_nodes=bc_nodes)
+MassMul = ApplyGaussMassMul(comm, patches, N, gauss_wts)
 
-# Solve the Poisson problem first as a sanity check
-rhs = 2*np.pi**2 * np.sin(np.pi * nodes[:, 0]) * np.sin(np.pi * nodes[:, 1])
-rhs_weak = q * rhs
+# Sanity-check Poisson solve: -Δu = 2π²sin(πx)sin(πy), u_exact = sin(πx)sin(πy)
+def f_sanity(pts):
+    return 2*np.pi**2 * np.sin(np.pi*pts[:, 0]) * np.sin(np.pi*pts[:, 1])
+
+rhs_weak = AssembleGaussRHS(comm, patches, N, gauss_pts, gauss_wts, f_sanity)
 rhs_weak[bc_nodes] = 0.0
 
 print(f"Rank {rank} starting GMRES solve...")
@@ -64,64 +55,90 @@ if rank == 0:
     PlotSolution(nodes, solution)
 
 # --- Spectrum computation ---
-if rank == 0:
-    print(f"Building dense operator matrix ({N}x{N}) for spectrum analysis...")
+# Generalised eigenvalue problem K φ = λ M φ:
+#   K = stiffness (ApplyWeakLap without BC rows)
+#   M = mass      (E_0^T diag(gauss_wts) E_0)
+# Exact Dirichlet eigenvalues on [0,1]²: λ_mn = π²(m²+n²), λ₁₁ = 2π².
 
-A_dense = np.zeros((N, N))
-for j in range(N):
-    e_j = np.zeros(N)
+if rank == 0:
+    print(f"Building dense K and M matrices ({N}x{N}) for spectrum analysis...")
+
+int_nodes = np.array([i for i in range(N) if i not in set(bc_nodes.tolist())])
+N_int = len(int_nodes)
+
+K_dense = np.zeros((N_int, N_int))
+M_dense = np.zeros((N_int, N_int))
+for jj, j in enumerate(int_nodes):
+    e_j    = np.zeros(N)
     e_j[j] = 1.0
-    A_dense[:, j] = WeakLap(e_j)
+    K_dense[:, jj] = WeakLap(e_j)[int_nodes]
+    M_dense[:, jj] = MassMul(e_j)[int_nodes]
 
 if rank == 0:
-    print("Computing eigenvalues...")
-    eigenvalues, eigenvectors = np.linalg.eig(A_dense)
+    from scipy.linalg import eig as geig
+    print("Computing generalised eigenvalues (K φ = λ M φ)...")
+    eigenvalues, eigenvectors = geig(K_dense, M_dense)
 
-    problem_eig = np.pi**2
-    closest_idx = np.argmin(np.abs(eigenvalues - problem_eig))
-    closest_eig = eigenvalues[closest_idx]
-    print(f"Problem eigenvalue: {problem_eig:.4e}")
-    print(f"Closest computed eigenvalue: {closest_eig:.4e}")
-    print(f"Distance: {np.abs(closest_eig - problem_eig):.4e}")
+    real_mask = np.abs(np.imag(eigenvalues)) < 1e-6 * np.abs(np.real(eigenvalues))
+    eig_real  = np.real(eigenvalues[real_mask])
+    evec_real = np.real(eigenvectors[:, real_mask])
 
-    closest_eigvec = np.real(eigenvectors[:, closest_idx])
+    sort_idx  = np.argsort(eig_real)
+    eig_real  = eig_real[sort_idx]
+    evec_real = evec_real[:, sort_idx]
+
+    exact_eigs = sorted(
+        np.pi**2 * (m**2 + n**2)
+        for m in range(1, 6) for n in range(1, 6)
+    )
+    exact_eigs = np.array(exact_eigs[:20])
+
+    print(f"\nFirst 10 computed eigenvalues vs exact π²(m²+n²):")
+    print(f"  {'Computed':>14}  {'Exact':>14}  {'Rel. error':>12}")
+    for i in range(min(10, len(eig_real))):
+        ex  = exact_eigs[i] if i < len(exact_eigs) else float('nan')
+        rel = abs(eig_real[i] - ex) / ex if ex > 0 else float('nan')
+        print(f"  {eig_real[i]:14.6f}  {ex:14.6f}  {rel:12.2e}")
+
+    # Eigenmode surface plot (fundamental mode λ₁₁ = 2π²)
+    mode_vec = np.zeros(N)
+    mode_vec[int_nodes] = evec_real[:, 0]
+    centre = np.argmin(np.linalg.norm(nodes - 0.5, axis=1))
+    if mode_vec[centre] < 0:
+        mode_vec = -mode_vec
 
     from matplotlib.tri import Triangulation
     tri_plot = Triangulation(nodes[:, 0], nodes[:, 1])
 
     fig_eig = plt.figure(figsize=(10, 8))
-    ax = fig_eig.add_subplot(111, projection='3d')
-    ax.plot_trisurf(tri_plot, closest_eigvec, cmap='RdBu_r',
-                    edgecolor='none', antialiased=True)
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_zlabel("Eigenvector value")
-    ax.set_title(f"Eigenvector for eigenvalue {closest_eig:.4e}")
+    ax3 = fig_eig.add_subplot(111, projection='3d')
+    ax3.plot_trisurf(tri_plot, mode_vec, cmap='RdBu_r',
+                     edgecolor='none', antialiased=True)
+    ax3.set_xlabel("x"); ax3.set_ylabel("y"); ax3.set_zlabel("Eigenvector value")
+    ax3.set_title(f"Fundamental eigenmode  "
+                  f"(computed $\\lambda_{{11}}$ = {eig_real[0]:.4f}, "
+                  f"exact $2\\pi^2$ = {2*np.pi**2:.4f})")
     plt.tight_layout()
     plt.savefig("closest_eigenvector.png", dpi=150)
 
-    fig, ax = plt.subplots(figsize=(7, 6))
-    ax.scatter(np.real(eigenvalues), np.imag(eigenvalues), s=8, alpha=0.7,
-               label="Computed eigenvalues")
-    ax.scatter(np.real(closest_eig), np.imag(closest_eig), c='r', s=35,
-               label="Closest to $\\pi^2$")
-    ax.scatter(problem_eig, 0.0, c='k', marker='x', s=45,
-               label="Reference $\\pi^2$")
-
-    ax.set_xlabel("Re($\\lambda$)")
-    ax.set_ylabel("Im($\\lambda$)")
-    ax.set_title("Spectrum of weak $-\\Delta$ in the complex plane")
-    ax.axhline(0, color='k', linewidth=0.5)
-    ax.axvline(0, color='k', linewidth=0.5)
+    # Spectrum index plot
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.scatter(np.arange(1, len(eig_real) + 1), eig_real,
+               s=18, color='steelblue', label="Computed $\\lambda_k$", zorder=3)
+    exact_in_range = exact_eigs[exact_eigs <= eig_real.max() * 1.05]
+    for ex in exact_in_range:
+        ax.axhline(ex, color='k', linewidth=0.6, linestyle='--', alpha=0.5)
+    ax.axhline(exact_in_range[0], color='k', linewidth=0.6, linestyle='--',
+               alpha=0.5, label="Exact $\\pi^2(m^2+n^2)$")
+    ax.set_xlabel("Eigenvalue index $k$")
+    ax.set_ylabel("$\\lambda_k$")
+    ax.set_title("Generalised spectrum of weak $-\\Delta$  (K$\\phi$ = $\\lambda$M$\\phi$)")
     ax.grid(True, alpha=0.3)
-    ax.set_aspect('equal', adjustable='box')
-    ax.legend(loc='best')
-
+    ax.legend(loc='upper left')
     plt.tight_layout()
     plt.savefig("laplacian_spectrum.png", dpi=150)
 
-    eig_nonzero = eigenvalues[np.abs(eigenvalues) > 1e-12]
-    cond_estimate = np.max(np.abs(eig_nonzero)) / np.min(np.abs(eig_nonzero))
-    print(f"Eigenvalue range: [{np.real(eigenvalues).min():.4e}, "
-          f"{np.real(eigenvalues).max():.4e}]")
-    print(f"Spectral condition number estimate: {cond_estimate:.4e}")
+    eig_pos = eig_real[eig_real > 1e-10]
+    cond_estimate = eig_pos.max() / eig_pos.min() if len(eig_pos) > 1 else float('nan')
+    print(f"\nEigenvalue range: [{eig_real.min():.4e}, {eig_real.max():.4e}]")
+    print(f"Spectral condition number (K relative to M): {cond_estimate:.4e}")
