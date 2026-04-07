@@ -132,3 +132,75 @@ def distributed_dot(comm, u, v):
 
 def distributed_norm(comm, v):
     return np.sqrt(distributed_dot(comm, v, v))
+
+
+def lsqr(comm, op, op_T, b, tol=1e-6, maxiter=None):
+    """
+    Distributed LSQR (Paige & Saunders 1982).
+
+    Solves min‖op(u) - b‖ using op (N→M) and op_T (M→N) without
+    forming the normal equations. Converges at condition number κ(A)
+    rather than κ(A)² as with GMRES on (AᵀA)u = Aᵀb.
+
+    Parameters
+    ----------
+    comm    : MPI communicator
+    op      : callable  u (N,) → v (M,)   — forward operator
+    op_T    : callable  v (M,) → u (N,)   — adjoint operator
+    b       : (M,) RHS in eval-point space
+    tol     : relative residual tolerance  ‖r‖/‖b‖ < tol
+    maxiter : maximum iterations (default 10*N)
+
+    Returns
+    -------
+    x      : (N,) solution
+    niters : number of iterations taken
+    """
+    # --- Initialize bidiagonalization ---
+    b_norm = distributed_norm(comm, b)
+    u = b / b_norm              # M-space unit vector
+    beta = b_norm
+
+    v = op_T(u)                 # N-space
+    alpha = distributed_norm(comm, v)
+    v = v / alpha
+
+    w = v.copy()                # search direction (N-space)
+    x = np.zeros_like(v)       # solution (N-space)
+
+    phi_bar = beta
+    rho_bar = alpha
+
+    if maxiter is None:
+        maxiter = 10 * len(x)
+
+    niters = maxiter
+    for i in range(maxiter):
+        # --- Lanczos bidiagonalization ---
+        u = op(v) - alpha * u   # M-space
+        beta = distributed_norm(comm, u)
+        u = u / beta
+
+        v = op_T(u) - beta * v  # N-space
+        alpha = distributed_norm(comm, v)
+        v = v / alpha
+
+        # --- QR step on 2×2 bidiagonal block ---
+        rho     = np.sqrt(rho_bar**2 + beta**2)
+        c       = rho_bar / rho
+        s       = beta    / rho
+        theta   = s * alpha
+        rho_bar = -c * alpha
+        phi     = c * phi_bar
+        phi_bar = s * phi_bar
+
+        # --- Update solution and search direction (N-space) ---
+        x = x + (phi / rho) * w
+        w = v - (theta / rho) * w
+
+        # --- Stopping criterion: |φ̄| / β₁ tracks ‖r‖/‖b‖ ---
+        if abs(phi_bar) / b_norm < tol:
+            niters = i + 1
+            break
+
+    return x, niters

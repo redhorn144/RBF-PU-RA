@@ -120,6 +120,51 @@ def ApplyLapOSTranspose(comm, patches, N, M, eval_boundary_indices, solution_bou
 
     return op_T
 
+def ApplyInterpOS(comm, patches, N, M):
+    """
+    Oversampled PU interpolation operator E: ℝᴺ → ℝᴹ.
+
+    Maps nodal values u to the PU approximant at M eval points:
+        (E u)(y_i) = Σ_p w̄_p(y_i) * (Φ_eval_p · u_p)
+
+    This is the "mass" side of the overdetermined semidiscrete system
+        E · du/dt = -D · u
+    whose ℓ₂ solution gives du/dt = -(EᵀE)⁻¹ Eᵀ D · u  (Tominec et al. 2024).
+    """
+    def op(u):
+        result_local = np.zeros(M)
+        for patch in patches:
+            u_local = u[patch.node_indices]
+            result_local[patch.eval_indices] += patch.w_bar_eval * (patch.Phi_eval @ u_local)
+        result = np.zeros(M)
+        comm.Allreduce(result_local, result)
+        return result
+    return op
+
+
+def ApplyDerivOS(comm, patches, N, M, k):
+    """
+    Oversampled PU partial derivative in direction k.
+
+    Maps u ∈ ℝᴺ → v ∈ ℝᴹ (eval points), no BCs enforced.
+
+    (∂u/∂x_k)(y_i) = Σ_p [ w̄_p(y_i) * (D_eval_p[k] u_p)
+                            + gw̄_p[k](y_i) * (Φ_eval_p u_p) ]
+    """
+    def op(u):
+        result_local = np.zeros(M)
+        for patch in patches:
+            sol_idx  = patch.node_indices
+            eval_idx = patch.eval_indices
+            u_local  = u[sol_idx]
+            result_local[eval_idx] += (patch.w_bar_eval * (patch.D_eval[k] @ u_local)
+                                       + patch.gw_bar_eval[:, k] * (patch.Phi_eval @ u_local))
+        result = np.zeros(M)
+        comm.Allreduce(result_local, result)
+        return result
+    return op
+
+
 #####################################
 # Matrix free operators for the global system
 # to be applied in the GMRES solver

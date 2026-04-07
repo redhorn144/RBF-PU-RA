@@ -3,7 +3,7 @@ Oversampled strong-form RBF-PU-RA Poisson solver.
 
 Solves -Δu = f on [0,1]² with homogeneous Dirichlet BCs using oversampled
 collocation: the PDE is enforced at M > N collocation points, yielding an
-overdetermined system A (M×N) solved via normal equations (AᵀA)u = Aᵀf.
+overdetermined system A (M×N) solved via LSQR (Paige & Saunders 1982).
 
 Usage:
     mpiexec -n 4 python PoissonDriverOS.py
@@ -13,7 +13,7 @@ from mpi4py import MPI
 from nodes.SquareDomain import PoissonSquareOne
 from source.Setup import SetupOversampled
 from source.Operators import ApplyLapOS, ApplyLapOSTranspose
-from source.Solver import gmres
+from source.Solver import lsqr
 from source.Plotter import PlotSolution
 
 comm = MPI.COMM_WORLD
@@ -25,8 +25,8 @@ rank = comm.Get_rank()
 # h_sol  : solution node spacing → N global unknowns
 # h_eval : collocation point spacing (finer) → M > N eval points
 # Oversampling ratio ≈ (h_sol / h_eval)^2 in 2D
-h_sol  = 0.045
-h_eval = 0.035   # gives M/N ≈ (0.025/0.018)² ≈ 1.93
+h_sol  = 0.05
+h_eval = 0.025   # gives M/N ≈ (0.025/0.018)² ≈ 1.93
 
 if rank == 0:
     nodes, normals, sol_groups = PoissonSquareOne(h_sol)
@@ -88,38 +88,29 @@ LapOS = ApplyLapOS(comm, patches, N, M, eval_bnd_nodes, sol_bnd_nodes, BCs)
 # Adjoint: ℝᴹ → ℝᴺ
 LapOST = ApplyLapOSTranspose(comm, patches, N, M, eval_bnd_nodes, sol_bnd_nodes, BCs)
 
-# Normal-equation operator: ℝᴺ → ℝᴺ  (used in GMRES)
-def LapNormal(u):
-    return LapOST(LapOS(u))
-
 # -----------------------------------------------------------------------
 # Build RHS
 # -----------------------------------------------------------------------
-# f at eval points
 f_eval = np.zeros(M)
 f_eval[eval_interior_idx] = (
     -2 * np.pi**2
     * np.sin(np.pi * eval_pts[eval_interior_idx, 0])
     * np.sin(np.pi * eval_pts[eval_interior_idx, 1])
 )
-# Boundary eval points: u = 0  (homogeneous Dirichlet)
 f_eval[eval_boundary_idx] = 0.0
 
-# Normal-equation RHS: Aᵀ f
-rhs_normal = LapOST(f_eval)
-
 # -----------------------------------------------------------------------
-# Solve
+# Solve via LSQR: min‖LapOS(u) - f_eval‖
 # -----------------------------------------------------------------------
 if rank == 0:
-    print("Starting GMRES on normal equations (AᵀA)u = Aᵀf ...")
+    print("Starting LSQR ...")
     t0 = MPI.Wtime()
 
-solution, num_iters = gmres(comm, LapNormal, rhs_normal, tol=1e-4, restart=100, maxiter=200)
+solution, num_iters = lsqr(comm, LapOS, LapOST, f_eval, tol=1e-4)
 
 if rank == 0:
     t1 = MPI.Wtime()
-    print(f"GMRES converged in {num_iters} iterations, {t1-t0:.2f}s")
+    print(f"LSQR converged in {num_iters} iterations, {t1-t0:.2f}s")
 
     u_exact = np.sin(np.pi * nodes[:, 0]) * np.sin(np.pi * nodes[:, 1])
     error = np.linalg.norm(solution - u_exact) / np.linalg.norm(u_exact)
