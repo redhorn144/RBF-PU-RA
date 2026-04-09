@@ -1,85 +1,120 @@
 import numpy as np
-import scipy.linalg as spla
-from .BaseHelpers import GenPhi
-from .BaseHelpers import GenMatrices
+from .BaseHelpers import *
 from scipy import optimize
-from scipy.linalg import ldl
+from scipy.linalg import lu_factor, lu_solve, solve_triangular
 
 #--------------------------------------------------------------------------------
+# RBF-RA-PUM: LS version, identical patch nodes in every patch.
 #
+# Phi(nodes, nodes) is complex symmetric (Gaussian RBF at complex epsilon).
+# We pre-compute an LU factorisation of Phi once per contour point and reuse
+# it across every patch, whose eval nodes vary but whose patch nodes are fixed.
 #--------------------------------------------------------------------------------
-def Rank0PhiFactors(nodes, K = 64, n = 16, m = 48):
+def PhiFactors(nodes, K=64):
+    """
+    Pre-factorise Phi(nodes, nodes) at every contour epsilon.
+
+    Returns
+    -------
+    phi_lus : list of (lu, piv) tuples from scipy.linalg.lu_factor, length K/2
+    Er      : float  – reference shape parameter
+    Es      : (K/2,) complex – contour points
+    """
     Er = GenEr(nodes)
     Es = GenEs(K)
-    Lus = np.empty((len(Es), nodes.shape[0], nodes.shape[0]), dtype=complex)
-    ds = np.empty(len(Es), dtype=complex)
-    perms = np.empty(len(Es), dtype=object)
-
-    for i in range(len(Es)):
-        phi = GenPhi(nodes, Es[i] * Er)
-        lu, d, perm = ldl(K)  # handles complex symmetric
-        Lus[i] = lu
-        ds[i] = d
-        perms[i] = perm
-
-    
-    return Ls, Er
+    phi_lus = [lu_factor(GenPhi(nodes, Es[i] * Er)) for i in range(len(Es))]
+    return phi_lus, Er, Es
 
 
+def StableMatricesLS(patch_eval_points, nodes, phi_lus, Er, Es,
+                     n=16, m=48, eval_epsilon=0):
+    """
+    Compute stable interpolation/differentiation matrices for one patch's
+    eval points, reusing the LU factors of Phi(nodes, nodes) that are
+    identical across all patches.
 
+    Parameters
+    ----------
+    patch_eval_points : (n_eval, d) array
+        Evaluation points for this patch.
+    nodes : (N, d) array
+        Patch nodes (same for every patch).
+    phi_lus : list of (lu, piv) tuples
+        Output of PhiFactors – LU factors of Phi(nodes,nodes) at each epsilon.
+    Er : float
+        Reference shape parameter from GenEr(nodes).
+    Es : (K/2,) complex array
+        Contour points from GenEs(K).
+    n, m : int
+        Denominator / numerator degrees for the rational approximant.
+    eval_epsilon : float
+        If 0, return flat-limit matrices; otherwise evaluate RA at this epsilon.
 
-######################################
-# C-RBF-PUM method: NOT LS
-#
-# StableFlatMatrices generates the stable
-# matrices from the RBF-RA method in the 
-# flat limit.
-# Called on each rank after the patches 
-# are generated and boadcast.
-######################################
-def StableFlatMatrices(nodes, K = 64, n = 16, m = 48, eval_epsilon = 0):
-    Er = GenEr(nodes)
-    es = GenEs(K)
-    d = nodes.shape[1]
-    N = nodes.shape[0]
+    Returns
+    -------
+    phi_stable  : (n_eval, N)
+    grad_stable : (d, n_eval, N)
+    lap_stable  : (n_eval, N)
+    """
+    n_eval  = patch_eval_points.shape[0]
+    N       = nodes.shape[0]
+    d_space = nodes.shape[1]
+    K       = len(Es)
 
-    #generate the matrices at each contour point
-    phis = np.empty((len(es), N, N), dtype=complex)
-    grads = np.empty((len(es), d, N, N), dtype=complex)
-    laps = np.empty((len(es), N, N), dtype=complex)
+    phis_flat  = np.empty((K, n_eval * N), dtype=complex)
+    grads_flat = np.empty((K, d_space, n_eval * N), dtype=complex)
+    laps_flat  = np.empty((K, n_eval * N), dtype=complex)
 
-    for i in range(len(es)):
-        phis[i], grads[i], laps[i] = GenMatrices(nodes, es[i] * Er)
+    for i in range(K):
+        eps = Es[i] * Er
 
-    #flatten all matrices into (K/2, N^2) for GenRAab
-    phis_flat = phis.reshape(len(es), -1)
-    grads_flat = grads.reshape(len(es), d, -1)
-    laps_flat = laps.reshape(len(es), -1)
+        # eval-point kernel matrices — change per patch, Phi(nodes,nodes) does not
+        phi_eval  = GenEvalPhi(patch_eval_points, nodes, eps)   # (n_eval, N)
+        lap_eval  = GenEvalPhiL(patch_eval_points, nodes, eps)  # (n_eval, N)
+        grad_eval = np.stack([                                   # (d, n_eval, N)
+            GenEvalPhixk(patch_eval_points, nodes, eps, k)
+            for k in range(d_space)
+        ])
 
-    #generate the rational approximant coefficients
-    a_phi, b_phi = GenRAab(phis_flat, es, n, m)
-    a_lap, b_lap = GenRAab(laps_flat, es, n, m)
+        # Solve Phi @ X = RHS for X = Phi^{-1} @ RHS.
+        # RHS columns: [phi_eval | grad_eval[0] | ... | grad_eval[d-1] | lap_eval]
+        # transposed so shape is (N, n_eval*(d+2))
+        rhs = np.hstack(
+            [phi_eval.T] +
+            [grad_eval[k].T for k in range(d_space)] +
+            [lap_eval.T]
+        )  # (N, n_eval*(d_space+2))
 
-    a_grad = np.empty((d, m+1, N*N))
-    b_grad = np.empty((d, n+1))
-    for i in range(d):
-        a_grad[i], b_grad[i] = GenRAab(grads_flat[:, i, :], es, n, m)
+        X = lu_solve(phi_lus[i], rhs)   # (N, n_eval*(d_space+2))
+
+        # unpack: X.T rows are the eval matrices
+        phis_flat[i]  = X[:, :n_eval].T.reshape(-1)
+        for k in range(d_space):
+            grads_flat[i, k] = X[:, n_eval*(1+k):n_eval*(2+k)].T.reshape(-1)
+        laps_flat[i] = X[:, n_eval*(1+d_space):].T.reshape(-1)
+
+    # rational approximant fit
+    a_phi, b_phi = GenRAab(phis_flat, Es, n, m)
+    a_lap, b_lap = GenRAab(laps_flat, Es, n, m)
+    a_grad = np.empty((d_space, m+1, n_eval*N))
+    b_grad = np.empty((d_space, n+1))
+    for k in range(d_space):
+        a_grad[k], b_grad[k] = GenRAab(grads_flat[:, k, :], Es, n, m)
 
     if eval_epsilon == 0:
-        # flat limit = a_0 coefficients, cast to real (imag parts are numerical noise)
-        phi_stable = a_phi[0].real.reshape(N, N)
-        lap_stable = a_lap[0].real.reshape(N, N)
-        grad_stable = a_grad[:, 0, :].real.reshape(d, N, N)
+        phi_stable  = a_phi[0].real.reshape(n_eval, N)
+        lap_stable  = a_lap[0].real.reshape(n_eval, N)
+        grad_stable = a_grad[:, 0, :].real.reshape(d_space, n_eval, N)
     else:
-        # evaluate rational approximant at eval_epsilon, scaled by Er
-        eps_scaled = eval_epsilon * Er
-        phi_stable = EvalRA(a_phi, b_phi, eps_scaled).reshape(N, N)
-        lap_stable = EvalRA(a_lap, b_lap, eps_scaled).reshape(N, N)
-        grad_stable = np.empty((d, N, N))
-        for i in range(d):
-            grad_stable[i] = EvalRA(a_grad[i], b_grad[i], eps_scaled).reshape(N, N)
+        eps_scaled  = eval_epsilon * Er
+        phi_stable  = EvalRA(a_phi, b_phi, eps_scaled).reshape(n_eval, N)
+        lap_stable  = EvalRA(a_lap, b_lap, eps_scaled).reshape(n_eval, N)
+        grad_stable = np.empty((d_space, n_eval, N))
+        for k in range(d_space):
+            grad_stable[k] = EvalRA(a_grad[k], b_grad[k], eps_scaled).reshape(n_eval, N)
 
     return phi_stable, grad_stable, lap_stable
+
 
 ######################################
 # Helpers for RA method
@@ -188,7 +223,7 @@ def GenRAab(fj_mat, es, n, m):
     # --- Step 5: Back-substitute for each numerator a_j ---
     # R * a_j = gt[:, j] - FT[:, :, j] @ b_coeffs
     v = gt - np.einsum('ijk,j->ik', FT, b_coeffs)  # (m+1, M)
-    a = spla.solve_triangular(R_mat, v)              # (m+1, M)
+    a = solve_triangular(R_mat, v)                   # (m+1, M)
 
     # Prepend 1 to denominator: b = [1, b1, b2, ..., bn]
     b = np.concatenate([[1.0], b_coeffs])

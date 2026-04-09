@@ -51,3 +51,14 @@ def GenEvalPhi(eval_points, x, e):
     r = np.linalg.norm(diff, axis=2)
     return np.exp(-(e * r) ** 2)
 
+def GenEvalPhixk(eval_points, x, e, k):
+    diff = eval_points[:, np.newaxis, :] - x[np.newaxis, :, :]
+    r = np.linalg.norm(diff, axis=2)
+    diff_k = diff[:, :, k]
+    return -2 * e**2 * diff_k * np.exp(-(e * r) ** 2)
+
+def GenEvalPhiL(eval_points, x, e):
+    diff = eval_points[:, np.newaxis, :] - x[np.newaxis, :, :]
+    r = np.linalg.norm(diff, axis=2)
+    d = x.shape[1]
+    return 2 * e**2 * np.exp(-(e * r) ** 2) * (2 * e**2 * r**2 - d)

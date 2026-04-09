@@ -2,9 +2,9 @@ import numpy as np
 from .BaseHelpers import GenPhi
 
 #In the LS-RBF-PUM method, nodes may be identically distributed across multiple patches.
-#Because of this, and the fact that with LS nodes may ie outside the computational domain
-#as well not needing to exist in the same place where overlapp occurs we need only generate 
-#1 interpolation matrix 
+#Because of this, and the fact that with LS nodes may be outside the computational domain
+#as well not needing to exist in the same place where overlap occurs we need only generate 
+#1 interpolation matri, Currently GLL seems a very bad choice due to conditioning issues
 
 def GenPatchNodes(n, r, d, layout = 'vogel'):
     if layout == 'polar_gll':
@@ -13,7 +13,6 @@ def GenPatchNodes(n, r, d, layout = 'vogel'):
         return VogelPoints(n, d, r)
     else:
         raise ValueError("Unsupported node layout: choose 'polar_gll' or 'vogel'.")
-
 
 #------------------------------------------------------------------------------------
 # Node layout options for the patches
