@@ -4,7 +4,25 @@ from .BaseHelpers import GenPhi
 from .BaseHelpers import GenMatrices
 from scipy import optimize
 
+#--------------------------------------------------------------------------------
+#
+#--------------------------------------------------------------------------------
+def Rank0PhiFactors(nodes, K = 64, n = 16, m = 48):
+    Er = GenEr(nodes)
+    Es = GenEs(K)
+    Ls = np.empty((len(Es), nodes.shape[0], nodes.shape[0]), dtype=complex)
+    for i in range(len(Es)):
+        phi = GenPhi(nodes, Es[i] * Er)
+        Ls[i] = np.linalg.cholesky(phi)
+    
+    return Ls, Er
+
+
+
+
 ######################################
+# C-RBF-PUM method: NOT LS
+#
 # StableFlatMatrices generates the stable
 # matrices from the RBF-RA method in the 
 # flat limit.

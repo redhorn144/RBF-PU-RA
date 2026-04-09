@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 import numpy as np
-import numba as nb
 
 @dataclass
 class Patch:
