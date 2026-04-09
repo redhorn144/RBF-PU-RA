@@ -3,6 +3,7 @@ import scipy.linalg as spla
 from .BaseHelpers import GenPhi
 from .BaseHelpers import GenMatrices
 from scipy import optimize
+from scipy.linalg import ldl
 
 #--------------------------------------------------------------------------------
 #
@@ -10,10 +11,17 @@ from scipy import optimize
 def Rank0PhiFactors(nodes, K = 64, n = 16, m = 48):
     Er = GenEr(nodes)
     Es = GenEs(K)
-    Ls = np.empty((len(Es), nodes.shape[0], nodes.shape[0]), dtype=complex)
+    Lus = np.empty((len(Es), nodes.shape[0], nodes.shape[0]), dtype=complex)
+    ds = np.empty(len(Es), dtype=complex)
+    perms = np.empty(len(Es), dtype=object)
+
     for i in range(len(Es)):
         phi = GenPhi(nodes, Es[i] * Er)
-        Ls[i] = np.linalg.cholesky(phi)
+        lu, d, perm = ldl(K)  # handles complex symmetric
+        Lus[i] = lu
+        ds[i] = d
+        perms[i] = perm
+
     
     return Ls, Er
 
