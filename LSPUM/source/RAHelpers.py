@@ -61,7 +61,7 @@ def StableMatricesLS(patch_eval_points, nodes, phi_lus, Er, Es,
     d_space = nodes.shape[1]
     K       = len(Es)
 
-    phis_flat  = np.empty((K, n_eval * N), dtype=complex)
+    E_flat  = np.empty((K, n_eval * N), dtype=complex)
     grads_flat = np.empty((K, d_space, n_eval * N), dtype=complex)
     laps_flat  = np.empty((K, n_eval * N), dtype=complex)
 
@@ -88,13 +88,13 @@ def StableMatricesLS(patch_eval_points, nodes, phi_lus, Er, Es,
         X = lu_solve(phi_lus[i], rhs)   # (N, n_eval*(d_space+2))
 
         # unpack: X.T rows are the eval matrices
-        phis_flat[i]  = X[:, :n_eval].T.reshape(-1)
+        E_flat[i]  = X[:, :n_eval].T.reshape(-1)
         for k in range(d_space):
             grads_flat[i, k] = X[:, n_eval*(1+k):n_eval*(2+k)].T.reshape(-1)
         laps_flat[i] = X[:, n_eval*(1+d_space):].T.reshape(-1)
 
     # rational approximant fit
-    a_phi, b_phi = GenRAab(phis_flat, Es, n, m)
+    a_E, b_E = GenRAab(E_flat, Es, n, m)
     a_lap, b_lap = GenRAab(laps_flat, Es, n, m)
     a_grad = np.empty((d_space, m+1, n_eval*N))
     b_grad = np.empty((d_space, n+1))
@@ -102,18 +102,18 @@ def StableMatricesLS(patch_eval_points, nodes, phi_lus, Er, Es,
         a_grad[k], b_grad[k] = GenRAab(grads_flat[:, k, :], Es, n, m)
 
     if eval_epsilon == 0:
-        phi_stable  = a_phi[0].real.reshape(n_eval, N)
+        E_stable  = a_E[0].real.reshape(n_eval, N)
         lap_stable  = a_lap[0].real.reshape(n_eval, N)
         grad_stable = a_grad[:, 0, :].real.reshape(d_space, n_eval, N)
     else:
         eps_scaled  = eval_epsilon * Er
-        phi_stable  = EvalRA(a_phi, b_phi, eps_scaled).reshape(n_eval, N)
+        E_stable  = EvalRA(a_E, b_E, eps_scaled).reshape(n_eval, N)
         lap_stable  = EvalRA(a_lap, b_lap, eps_scaled).reshape(n_eval, N)
         grad_stable = np.empty((d_space, n_eval, N))
         for k in range(d_space):
             grad_stable[k] = EvalRA(a_grad[k], b_grad[k], eps_scaled).reshape(n_eval, N)
 
-    return phi_stable, grad_stable, lap_stable
+    return E_stable, grad_stable, lap_stable
 
 
 ######################################

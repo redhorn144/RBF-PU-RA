@@ -7,22 +7,24 @@ from scipy.spatial import cKDTree
 #------------------------------------------------------------------------------------
 
 
-def GenPatchTiling(eval_interior, eval_boundary, tiling_choice=("grid",)):
+def GenPatchTiling(eval_interior, eval_boundary, tiling_choice=("grid",), min_nodes=1):
     if tiling_choice[0] == "grid":
         overlap = tiling_choice[1] if len(tiling_choice) > 1 else 1.5
         n_side  = tiling_choice[2] if len(tiling_choice) > 2 else None
-        return grid_tiling(eval_interior, eval_boundary, overlap=overlap, n_side=n_side)
+        return grid_tiling(eval_interior, eval_boundary, overlap=overlap,
+                           n_side=n_side, min_nodes=min_nodes)
     else:
         raise ValueError("Unsupported tiling choice: choose 'grid'.")
 
 
-def grid_tiling(eval_interior, eval_boundary, overlap=1.5, n_side=None):
+def grid_tiling(eval_interior, eval_boundary, overlap=1.5, n_side=None, min_nodes=1):
     """
     Cover the domain with circles whose centers lie on a uniform Cartesian grid.
 
     Every domain node (interior or boundary) is guaranteed to fall inside at
-    least one patch.  Grid cells that contain no domain nodes are discarded,
-    so non-convex and irregular domains are handled correctly.
+    least one patch.  Grid cells that contain fewer than ``min_nodes`` domain
+    nodes are discarded, so non-convex and irregular domains are handled
+    correctly and each retained patch is sufficiently populated.
 
     Parameters
     ----------
@@ -37,6 +39,10 @@ def grid_tiling(eval_interior, eval_boundary, overlap=1.5, n_side=None):
     n_side : int or None
         Number of grid intervals along the longest axis.  If None, defaults
         to ``max(2, int(sqrt(N) / 2))`` where N is the total node count.
+    min_nodes : int
+        Minimum number of evaluation nodes a patch must contain to be kept.
+        Pass ``n_interp`` from SetupPatches to guarantee every patch is
+        overdetermined (n_eval >= n_interp).  Default: 1.
 
     Returns
     -------
@@ -65,9 +71,9 @@ def grid_tiling(eval_interior, eval_boundary, overlap=1.5, n_side=None):
     grids = np.meshgrid(*axes, indexing='ij')
     candidates = np.column_stack([g.ravel() for g in grids])
 
-    # Discard centers with no domain nodes within radius r
+    # Discard centers whose patch would be underdetermined (fewer than min_nodes eval nodes)
     tree = cKDTree(nodes)
     counts = tree.query_ball_point(candidates, r=r, return_length=True)
-    centers = candidates[counts > 0]
+    centers = candidates[counts >= min_nodes]
 
     return centers, r

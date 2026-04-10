@@ -23,7 +23,7 @@ class Patch:
 
     RBF evaluation matrices  (n_eval × n_interp, built at shape param e_ref)
     -------------------------
-    Phi          : (n_eval, n_interp)
+    E            : (n_eval, n_interp)
     D            : (d, n_eval, n_interp)   spatial derivatives
     L            : (n_eval, n_interp)      Laplacian
 
@@ -46,7 +46,7 @@ class Patch:
     bc_values    : np.ndarray
 
     # --- RBF matrices ---
-    Phi          : np.ndarray
+    E            : np.ndarray
     D            : np.ndarray
     L            : np.ndarray
 

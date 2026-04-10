@@ -27,7 +27,7 @@ from .RAHelpers import PhiFactors, StableMatricesLS
 
 def SetupPatches(comm, eval_interior, eval_boundary, normals, bc_values,
                  centers, r, n_interp=30, node_layout='vogel',
-                 K=64, n=16, m=48, eval_epsilon=0):
+                 K=64, n=16, m=48, eval_epsilon=0, strict=True):
     """
     Build the local list of Patch objects for this MPI rank using RA-stable matrices.
 
@@ -45,6 +45,10 @@ def SetupPatches(comm, eval_interior, eval_boundary, normals, bc_values,
     K             : int        contour points for the RA method (passed to PhiFactors)
     n, m          : int        denominator / numerator degrees for the rational approximant
     eval_epsilon  : float      shape parameter to evaluate at; 0 = flat-limit
+    strict        : bool       if True (default), raise if any patch has fewer than
+                               n_interp eval nodes (underdetermined local system).
+                               Use GenPatchTiling(..., min_nodes=n_interp) to prevent
+                               this at the tiling stage.
 
     Returns
     -------
@@ -81,7 +85,12 @@ def SetupPatches(comm, eval_interior, eval_boundary, normals, bc_values,
     for pid in range(rank, len(centers), size):
         c   = centers[pid]
         idx = np.asarray(tree.query_ball_point(c, r=r), dtype=int)
-        if len(idx) == 0:
+        if len(idx) < n_interp:
+            if strict and len(idx) > 0:
+                raise ValueError(
+                    f"Patch {pid} has {len(idx)} eval nodes but n_interp={n_interp}. "
+                    "Pass min_nodes=n_interp to GenPatchTiling to filter at the tiling stage."
+                )
             continue
 
         # Shift eval points to the local frame of proto_nodes (centred at origin).
@@ -89,7 +98,7 @@ def SetupPatches(comm, eval_interior, eval_boundary, normals, bc_values,
         # eval coords, but lets us reuse the precomputed LU factors directly.
         eval_pts_local = all_nodes[idx] - c                        # (n_eval, d)
 
-        Phi, D, L = StableMatricesLS(
+        E, D, L = StableMatricesLS(
             eval_pts_local, proto_nodes, phi_lus, Er, Es,
             n=n, m=m, eval_epsilon=eval_epsilon,
         )
@@ -103,7 +112,7 @@ def SetupPatches(comm, eval_interior, eval_boundary, normals, bc_values,
             interp_nodes = c + proto_nodes,
             is_boundary  = is_bnd[idx],
             bc_values    = full_bc[idx],
-            Phi          = Phi,                                     # (n_eval, n_interp)
+            E            = E,                                     # (n_eval, n_interp)
             D            = D,                                       # (d, n_eval, n_interp)
             L            = L,                                       # (n_eval, n_interp)
         ))
