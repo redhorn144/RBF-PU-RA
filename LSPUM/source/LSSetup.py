@@ -25,7 +25,7 @@ from .RAHelpers import PhiFactors, StableMatricesLS
 #   StableMatricesLS, so the same LU factors apply across all patches.
 #------------------------------------------------------------------------------------
 
-def SetupPatches(comm, eval_interior, eval_boundary, normals, bc_values,
+def SetupPatches(comm, eval_interior, eval_boundary, normals, bc_flags,
                  centers, r, n_interp=30, node_layout='vogel',
                  K=64, n=16, m=48, eval_epsilon=0, strict=True):
     """
@@ -37,7 +37,7 @@ def SetupPatches(comm, eval_interior, eval_boundary, normals, bc_values,
     eval_interior : (N_i, d)   interior evaluation nodes
     eval_boundary : (N_b, d)   boundary evaluation nodes
     normals       : (N_b, d)   outward unit normals at boundary nodes
-    bc_values     : (N_b,)     Dirichlet BC values at boundary nodes
+    bc_flags      : (N_b,)     boundary condition flags at boundary nodes
     centers       : (M, d)     patch centres from GenPatchTiling (same on all ranks)
     r             : float      patch radius (same on all ranks)
     n_interp      : int        number of RBF interpolation nodes per patch
@@ -69,7 +69,7 @@ def SetupPatches(comm, eval_interior, eval_boundary, normals, bc_values,
     is_bnd       = np.zeros(len(all_nodes), dtype=bool)
     is_bnd[n_int:] = True
     full_normals = np.vstack([np.zeros((n_int, d)), normals])      # (N, d)
-    full_bc      = np.concatenate([np.full(n_int, np.nan), bc_values])  # (N,)
+    full_bc      = np.concatenate([np.full(n_int, 'i'), bc_flags])  # (N,)
 
     # Prototype interpolation nodes (origin-centred, scaled by r).
     # PhiFactors pre-computes LU factorisations of Φ(proto, proto) at every
@@ -103,6 +103,8 @@ def SetupPatches(comm, eval_interior, eval_boundary, normals, bc_values,
             n=n, m=m, eval_epsilon=eval_epsilon,
         )
 
+        AdjustBoundaryMatrices(E, D, L, full_bc[idx], full_normals[idx])
+
         local_patches.append(Patch(
             center       = c,
             radius       = r,
@@ -111,13 +113,51 @@ def SetupPatches(comm, eval_interior, eval_boundary, normals, bc_values,
             normals      = full_normals[idx],
             interp_nodes = c + proto_nodes,
             is_boundary  = is_bnd[idx],
-            bc_values    = full_bc[idx],
+            bc_flags     = full_bc[idx],
             E            = E,                                     # (n_eval, n_interp)
             D            = D,                                       # (d, n_eval, n_interp)
             L            = L,                                       # (n_eval, n_interp)
+            global_pid   = pid,
         ))
 
     return local_patches
+
+def AdjustBoundaryMatrices(E, D, L, bc_flags, full_normals):
+    """
+    Modify the local interpolation/differentiation matrices to enforce boundary conditions.
+
+    For example, for Dirichlet nodes we want E[i,:] = 0 except E[i,i] = 1, and D[i,:] =
+    L[i,:] = 0.  For Neumann nodes we want D[i,:] = n_i · D[i,:] (normal derivative)
+    and E[i,:] = L[i,:] = 0.  This is a simple row-wise operation based on the bc_flags
+    for each node.
+
+    Parameters
+    ----------
+    E        : (n_eval, n_interp) array
+        Interpolation matrix for this patch.
+    D        : (d, n_eval, n_interp) array
+        Differentiation matrices for this patch.
+    L        : (n_eval, n_interp) array
+        Laplacian matrix for this patch.
+    bc_flags : (n_eval,) array
+        Boundary condition flags for each eval node in this patch.
+
+    Returns
+    -------
+    None; modifies E, D, L in-place.
+    """
+    for i in range(E.shape[0]):
+        if bc_flags[i] == 'd':  # Dirichlet
+            # Zero derivative operators; keep E[i,:] intact so ApplyLap can use
+            # the correct interpolation row (w_bar * E @ u) for BC enforcement.
+            # Setting E[i,i]=1 is wrong in LS mode (n_eval > n_interp) and causes
+            # IndexError when i >= n_interp.
+            D[:,i,:] = 0
+            L[i,:] = 0
+        elif bc_flags[i] == 'n':  # Neumann
+            D[:,i,:] = np.einsum('ki,k->i', D[:,i,:], full_normals[i])
+            E[i,:] = 0
+            L[i,:] = 0
 
 
 def PatchNodeOrdering(N, patches):

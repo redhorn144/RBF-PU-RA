@@ -19,7 +19,7 @@ class Patch:
     Boundary information
     --------------------
     is_boundary  : (n_eval,) bool    True for boundary eval nodes
-    bc_values    : (n_eval,)         Dirichlet value at boundary nodes, NaN for interior
+    bc_flags     : (n_eval,)         boundary condition flags at boundary nodes
 
     RBF evaluation matrices  (n_eval × n_interp, built at shape param e_ref)
     -------------------------
@@ -43,14 +43,15 @@ class Patch:
 
     # --- boundary info ---
     is_boundary  : np.ndarray
-    bc_values    : np.ndarray
+    bc_flags     : np.ndarray
 
     # --- RBF matrices ---
     E            : np.ndarray
     D            : np.ndarray
     L            : np.ndarray
 
-    # --- PU weights (populated later) ---
+    # --- identifiers and PU weights (populated after construction) ---
+    global_pid   : int = 0                                          # round-robin global patch index
     w_bar        : Optional[np.ndarray] = field(default=None)
     gw_bar       : Optional[np.ndarray] = field(default=None)
     lw_bar       : Optional[np.ndarray] = field(default=None)
