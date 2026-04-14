@@ -1,79 +1,25 @@
 import numpy as np
 from scipy.spatial import cKDTree
 
-#------------------------------------------------------------------------------------
-# This file consisits of a function that generates a tiling of patches for the LS-RBF-PUM
-# different choices are given for how to tile the domain
-#------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------
+# This file contains utilities for tiling the domain with patches
+# ---------------------------------------------------------------------------
 
+def BoxGridTiling2D(eval_nodes, groups, n_interp, eval_density, oversample_factor, overlap):
+    x_min, y_min = np.min(eval_nodes, axis=0)
+    x_max, y_max = np.max(eval_nodes, axis=0)
 
-def GenPatchTiling(eval_interior, eval_boundary, tiling_choice=("grid",), min_nodes=1):
-    if tiling_choice[0] == "grid":
-        overlap = tiling_choice[1] if len(tiling_choice) > 1 else 1.5
-        n_side  = tiling_choice[2] if len(tiling_choice) > 2 else None
-        return grid_tiling(eval_interior, eval_boundary, overlap=overlap,
-                           n_side=n_side, min_nodes=min_nodes)
-    else:
-        raise ValueError("Unsupported tiling choice: choose 'grid'.")
+    r = np.sqrt(oversample_factor*n_interp / (np.pi * eval_density))
 
-
-def grid_tiling(eval_interior, eval_boundary, overlap=1.5, n_side=None, min_nodes=1):
-    """
-    Cover the domain with circles whose centers lie on a uniform Cartesian grid.
-
-    Every domain node (interior or boundary) is guaranteed to fall inside at
-    least one patch.  Grid cells that contain fewer than ``min_nodes`` domain
-    nodes are discarded, so non-convex and irregular domains are handled
-    correctly and each retained patch is sufficiently populated.
-
-    Parameters
-    ----------
-    eval_interior : (N_i, d) array
-        Interior evaluation nodes.
-    eval_boundary : (N_b, d) array
-        Boundary evaluation nodes.
-    overlap : float
-        Overlap factor (> 1).  Patch radius is ``overlap * h*sqrt(d)/2``,
-        where ``h`` is the grid spacing.  Larger values give more inter-patch
-        overlap at the cost of larger local systems.  Default: 1.5.
-    n_side : int or None
-        Number of grid intervals along the longest axis.  If None, defaults
-        to ``max(2, int(sqrt(N) / 2))`` where N is the total node count.
-    min_nodes : int
-        Minimum number of evaluation nodes a patch must contain to be kept.
-        Pass ``n_interp`` from SetupPatches to guarantee every patch is
-        overdetermined (n_eval >= n_interp).  Default: 1.
-
-    Returns
-    -------
-    centers : (M, d) array
-        Patch center coordinates (one row per active patch).
-    r : float
-        Patch radius (same for every patch).
-    """
-    nodes = np.vstack([eval_interior, eval_boundary])
-    d = nodes.shape[1]
-    N = len(nodes)
-
-    lo = nodes.min(axis=0)
-    hi = nodes.max(axis=0)
-
-    if n_side is None:
-        n_side = max(2, int(np.sqrt(N) / 2))
-
-    h = (hi - lo).max() / n_side
-
-    # Minimum radius to cover every point in a grid cell, times the overlap factor
-    r = overlap * h * np.sqrt(d) / 2
-
-    # Candidate centers: one per grid point in the bounding box
-    axes = [np.arange(lo[k], hi[k] + h, h) for k in range(d)]
-    grids = np.meshgrid(*axes, indexing='ij')
-    candidates = np.column_stack([g.ravel() for g in grids])
-
-    # Discard centers whose patch would be underdetermined (fewer than min_nodes eval nodes)
-    tree = cKDTree(nodes)
-    counts = tree.query_ball_point(candidates, r=r, return_length=True)
-    centers = candidates[counts >= min_nodes]
-
+    x_centers = np.arange(x_min, x_max + r, r * (1 - overlap))
+    y_centers = np.arange(y_min, y_max + r, r * (1 - overlap))
+    centers = np.array([(x, y) for x in x_centers for y in y_centers])
+    
     return centers, r
+
+
+
+
+
+
+    

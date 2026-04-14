@@ -36,13 +36,12 @@ class Patch:
     # --- geometry ---
     center       : np.ndarray
     radius       : float
-    node_indices : np.ndarray
-    nodes        : np.ndarray
+    eval_node_indices : np.ndarray
+    eval_nodes        : np.ndarray
     normals      : np.ndarray
     interp_nodes : np.ndarray
 
     # --- boundary info ---
-    is_boundary  : np.ndarray
     bc_flags     : np.ndarray
 
     # --- RBF matrices ---
@@ -50,8 +49,10 @@ class Patch:
     D            : np.ndarray
     L            : np.ndarray
 
-    # --- identifiers and PU weights (populated after construction) ---
-    global_pid   : int = 0                                          # round-robin global patch index
+    # --- PID ---
+    global_pid   : int
+
+    # --- PU weights (populated after construction) --- 
     w_bar        : Optional[np.ndarray] = field(default=None)
     gw_bar       : Optional[np.ndarray] = field(default=None)
     lw_bar       : Optional[np.ndarray] = field(default=None)
