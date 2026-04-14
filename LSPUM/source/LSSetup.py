@@ -12,7 +12,7 @@ def Setup(comm, eval_nodes, normals, bc_flags, centers, r, n_interp=30, node_lay
     rank = comm.Get_rank()
     size = comm.Get_size()
 
-    patch_nodes_base = GenPatchNodes(centers, r, n_interp, node_layout)
+    patch_nodes_base = GenPatchNodes(n_interp, r, eval_nodes.shape[1], node_layout)
 
     if rank == 0:
         phi_lus, Er, Es    = PhiFactors(patch_nodes_base, K=K)
@@ -34,7 +34,7 @@ def Setup(comm, eval_nodes, normals, bc_flags, centers, r, n_interp=30, node_lay
     else:
         tree = None
     
-    comm.broadcast(tree, root=0)
+    comm.bcast(tree, root=0)
 
     local_patches = []
     for i in local_patch_indices:

@@ -6,13 +6,12 @@ def GenLap(comm, patches, M):
     n_interp = patches[0].E.shape[1] if patches else 0
     d        = patches[0].D.shape[0]  if patches else 0
 
-    def lap(u):
+    def lap(local_us):
         result_local = np.zeros(M)
         for p, patch in enumerate(patches):
-            pid = patch.global_pid
+            #pid = patch.global_pid
             idx   = patch.eval_node_indices
-            u_j = u[pid * n_interp : (pid + 1) * n_interp]
-
+            u_j = local_us[p]
             E_u   = patch.E @ u_j
             grad  = np.column_stack([patch.D[k] @ u_j for k in range(d)])
             lap_u = patch.L @ u_j
