@@ -25,7 +25,7 @@ def Setup(comm, eval_nodes, normals, bc_flags, centers, r, n_interp=30, node_lay
     Es = comm.bcast(Es, root=0)
 
     if assignment == 'round_robin':
-        local_patch_indices = RoundRobin(rank, size, len(patch_nodes_base))
+        local_patch_indices = RoundRobin(rank, size, len(centers))
     else:
         raise ValueError("Unknown assignment method")
     
@@ -34,7 +34,7 @@ def Setup(comm, eval_nodes, normals, bc_flags, centers, r, n_interp=30, node_lay
     else:
         tree = None
     
-    comm.bcast(tree, root=0)
+    tree = comm.bcast(tree, root=0)
 
     local_patches = []
     for i in local_patch_indices:

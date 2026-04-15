@@ -6,7 +6,9 @@ from scipy.spatial import cKDTree
 from source.PatchTiling import BoxGridTiling2D
 from nodes.SquareDomain import PoissonSquareOne, MinEnergySquareOne
 from source.LSSetup import Setup
-from source.Operators import GenLap
+from source.Operators import GenLapMatrix, GenInterp
+from scipy.sparse.linalg import lsqr
+from source.PUWeights import NormalizeWeights
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
@@ -14,9 +16,9 @@ size = comm.Get_size()
 
 plotfolder = "figures"
 
-M = 500
-beta = 2
-alpha = 1.2
+M = 1000
+beta = 6
+alpha = 2
 
 if rank == 0:
     print("Generating nodes...")
@@ -24,7 +26,7 @@ if rank == 0:
     eval_nodes, normals, groups = MinEnergySquareOne(M)
 
     print("Tiling domain...")
-    centers, r = BoxGridTiling2D(eval_nodes, n_interp=30, oversample_factor=beta, overlap=alpha)
+    centers, r = BoxGridTiling2D(eval_nodes, n_interp=50, oversample_factor=beta, overlap=alpha)
 
     # Count eval_nodes per patch
     tree = cKDTree(eval_nodes)
@@ -51,11 +53,12 @@ else:
     groups = None
     centers = None
     r = None
-comm.bcast(eval_nodes, root=0)
-comm.bcast(normals, root=0)
-comm.bcast(groups, root=0)
-comm.bcast(centers, root=0)
-comm.bcast(r, root=0)
+eval_nodes = comm.bcast(eval_nodes, root=0)
+normals    = comm.bcast(normals, root=0)
+groups     = comm.bcast(groups, root=0)
+centers    = comm.bcast(centers, root=0)
+r          = comm.bcast(r, root=0)
+
 
 bc_flags = np.empty(len(eval_nodes), dtype=str)
 bc_flags[groups["boundary:all"]] = 'd'
@@ -63,32 +66,53 @@ bc_flags[groups["boundary:all"]] = 'd'
 bc_flags[groups["interior"]] = 'i'
 
 local_patches = Setup(
-    comm, eval_nodes, normals, groups, centers, r,
+    comm, eval_nodes, normals, bc_flags, centers, r,
     n_interp=30, node_layout='vogel', assignment='round_robin',
     K=64, n=16, m=48, eval_epsilon=0,
 )
 
-lap = GenLap(comm, local_patches, M=M)
+NormalizeWeights(comm, local_patches, M)
 
-local_us = []
+n_interp  = local_patches[0].interp_nodes.shape[0] if local_patches else 0
+n_interp  = comm.allreduce(n_interp, op=MPI.MAX)
+N_patches = len(centers)
 
-for patch in local_patches:
-    u_j = -2*np.pi**2*np.sin(np.pi * patch.interp_nodes[:, 0]) * np.sin(np.pi * patch.interp_nodes[:, 1])
-    local_us.append(u_j)
-
-UY = lap(local_us)
+print(f"[{rank}] Building system matrix ({M} x {N_patches * n_interp})...")
+A = GenLapMatrix(comm, local_patches, M, N_patches, n_interp, groups["boundary:all"])
 
 if rank == 0:
-    # Plot UY
-    fig, ax = plt.subplots(figsize=(8, 8))
-    sc = ax.scatter(eval_nodes[:, 0], eval_nodes[:, 1], c=UY, s=5, cmap='viridis')
-    plt.colorbar(sc, ax=ax, label='Laplace(U)')
-    ax.set_aspect('equal')
-    ax.set_title('Laplace(U) at eval nodes')
+    # RHS: interior = manufactured forcing, boundary = 0 (sin vanishes on unit-square boundary)
+    f = np.zeros(M)
+    xi = eval_nodes[groups["interior"]]
+    f[groups["interior"]] = -2 * np.pi**2 * np.sin(np.pi * xi[:, 0]) * np.sin(np.pi * xi[:, 1])
+
+    print(f"Solving ({A.shape[0]} x {A.shape[1]}, nnz={A.nnz})...")
+    c, *_ = lsqr(A, f, atol=1e-12, btol=1e-12, iter_lim=50000)
+else:
+    c = None
+
+c = comm.bcast(c, root=0)
+
+local_cs = [c[p.global_pid * n_interp : (p.global_pid + 1) * n_interp] for p in local_patches]
+
+interp = GenInterp(comm, local_patches, M=M)
+U = interp(local_cs)
+
+if rank == 0:
+    u_exact = np.sin(np.pi * eval_nodes[:, 0]) * np.sin(np.pi * eval_nodes[:, 1])
+    error   = np.abs(U - u_exact)
+    print(f"Max error: {error.max():.2e},  L2 error: {np.sqrt(np.mean(error**2)):.2e}")
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    sc0 = axes[0].scatter(eval_nodes[:, 0], eval_nodes[:, 1], c=U,     s=5, cmap='viridis')
+    sc1 = axes[1].scatter(eval_nodes[:, 0], eval_nodes[:, 1], c=error, s=5, cmap='hot_r')
+    plt.colorbar(sc0, ax=axes[0], label='U (computed)')
+    plt.colorbar(sc1, ax=axes[1], label='|error|')
+    axes[0].set_aspect('equal'); axes[0].set_title('PUM Poisson solution')
+    axes[1].set_aspect('equal'); axes[1].set_title('Pointwise error')
     plt.tight_layout()
-    plt.savefig(plotfolder + '/laplace_u.png', dpi=150)
-    #plt.show()
-    print("Saved laplace_u.png")
+    plt.savefig(plotfolder + '/poisson_solution.png', dpi=150)
+    print("Saved poisson_solution.png")
 
 
 

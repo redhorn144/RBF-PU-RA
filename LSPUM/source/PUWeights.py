@@ -34,7 +34,7 @@ def NormalizeWeights(comm, patches, N):
     W : (N,) array
         Global weight sum (should be ≥ 1 everywhere; useful for diagnostics).
     """
-    d = patches[0].nodes.shape[1] if patches else 0
+    d = patches[0].interp_nodes.shape[1] if patches else 0
     d = comm.allreduce(d, op=MPI.MAX)
 
     W_local     = np.zeros(N)
@@ -44,10 +44,10 @@ def NormalizeWeights(comm, patches, N):
     # Pass 1: accumulate raw weights; cache to avoid recomputing after Allreduce
     cache = []
     for patch in patches:
-        idx = patch.node_indices
-        w   = C2Weight(patch.nodes, patch.center, patch.radius)
-        gw  = C2WeightGradient(patch.nodes, patch.center, patch.radius)
-        lw  = C2WeightLaplacian(patch.nodes, patch.center, patch.radius)
+        idx = patch.eval_node_indices
+        w   = C2Weight(patch.eval_nodes, patch.center, patch.radius)
+        gw  = C2WeightGradient(patch.eval_nodes, patch.center, patch.radius)
+        lw  = C2WeightLaplacian(patch.eval_nodes, patch.center, patch.radius)
         cache.append((w, gw, lw))
 
         W_local[idx]     += w
@@ -67,7 +67,7 @@ def NormalizeWeights(comm, patches, N):
     #   ∇ψ  = ∇w/W  -  w ∇W / W²
     #   Δψ  = Δw/W  -  2 ∇w·∇W / W²  -  w ΔW / W²  +  2 w |∇W|² / W³
     for patch, (w, gw, lw) in zip(patches, cache):
-        idx = patch.node_indices
+        idx = patch.eval_node_indices
         Wn  = W[idx]            # (n_eval,)
         gWn = gradW[idx]        # (n_eval, d)
         lWn = lapW[idx]         # (n_eval,)
