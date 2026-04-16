@@ -94,3 +94,93 @@ def GenLapMatrix(comm, patches, M, N_patches, n_interp, bc_indices):
         A_lap[bc_indices, :] = A_itp[bc_indices, :]
         return csr_matrix(A_lap)
     return None
+
+
+#---------------------------------------------------------------------------
+# Matrix-free LS-Poisson operator.
+#
+# The same system built by GenLapMatrix, but never assembled: each patch
+# stores a per-patch row matrix R_p (n_eval_p, n_interp) and forward /
+# adjoint apply reduce to one dense product per patch plus a single
+# Allreduce in the forward direction.
+#---------------------------------------------------------------------------
+
+def GenRowMatrices(patches, bc_scale=1.0):
+    """
+    Per-patch row matrices R_p for the LS-PUM Poisson system.
+
+    R_p has shape (n_eval_p, n_interp) and encodes patch p's contribution
+    to every global row of A:
+
+        interior  i :  R_p[i,:] = w_bar[i]*L[i,:]
+                                + 2 gw_bar[i]·D[:,i,:]
+                                + lw_bar[i]*E[i,:]
+        Dirichlet i :  R_p[i,:] = bc_scale * w_bar[i] * E[i,:]
+
+    AdjustBoundaryMatrices has already zeroed D and L at Dirichlet rows,
+    so the 'interior' formula collapses to lw_bar*E there before the
+    Dirichlet rows are overwritten.  Neumann rows are not yet handled.
+
+    Parameters
+    ----------
+    patches  : list[Patch]
+    bc_scale : float
+        Weight on Dirichlet rows.  Interior (Laplacian) entries scale like
+        1/r^2 while interpolant entries scale like 1, so unweighted LSQR
+        ignores the boundary.  bc_scale balances the two row norms.
+
+    Returns
+    -------
+    Rs : list of (n_eval_p, n_interp) arrays, one per local patch.
+    """
+    Rs = []
+    for p in patches:
+        R = (p.w_bar[:, None] * p.L
+             + 2.0 * np.einsum('id,dij->ij', p.gw_bar, p.D)
+             + p.lw_bar[:, None] * p.E)
+        bc_mask = (p.bc_flags == 'd')
+        if bc_mask.any():
+            R[bc_mask] = bc_scale * p.w_bar[bc_mask, None] * p.E[bc_mask]
+        Rs.append(R)
+    return Rs
+
+
+def GenMatFreeOps(comm, patches, Rs, M, n_interp):
+    """
+    Matrix-free forward / adjoint operators for the LS-PUM Poisson system.
+
+    Layout
+    ------
+    v_local has shape (len(patches) * n_interp,); the pi-th local patch
+    owns block v_local[pi*n_interp : (pi+1)*n_interp].
+
+    Parameters
+    ----------
+    comm     : MPI communicator
+    patches  : list[Patch]                 local patches on this rank
+    Rs       : list[(n_eval_p, n_interp)]  row matrices from GenRowMatrices
+    M        : int                         global number of eval nodes
+    n_interp : int                         DOFs per patch
+
+    Returns
+    -------
+    matvec  : callable  v_local -> (M,) global, identical on every rank
+    rmatvec : callable  (M,) global -> v_local, rank-local
+    """
+    def matvec(v_local):
+        out_local = np.zeros(M)
+        for pi, (p, R) in enumerate(zip(patches, Rs)):
+            c_p = v_local[pi*n_interp:(pi+1)*n_interp]
+            out_local[p.eval_node_indices] += R @ c_p
+        out = np.empty(M)
+        comm.Allreduce(out_local, out, op=MPI.SUM)
+        return out
+
+    def rmatvec(u):
+        v_local = np.empty(len(patches) * n_interp)
+        for pi, (p, R) in enumerate(zip(patches, Rs)):
+            y_p = u[p.eval_node_indices]
+            v_local[pi*n_interp:(pi+1)*n_interp] = R.T @ y_p
+        return v_local
+
+    return matvec, rmatvec

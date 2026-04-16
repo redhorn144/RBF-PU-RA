@@ -35,7 +35,7 @@ def Setup(comm, eval_nodes, normals, bc_flags, centers, r, n_interp=30, node_lay
         tree = None
     
     tree = comm.bcast(tree, root=0)
-
+    
     local_patches = []
     for i in local_patch_indices:
         

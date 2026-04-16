@@ -28,9 +28,24 @@ def BoxGridTiling2D(eval_nodes, n_interp, oversample_factor, overlap):
 
     return centers, r
 
+def ManualTiling2D(nx, ny, x_min, x_max, y_min, y_max, r):
+    x_centers = np.linspace(x_min + r/2, x_max - r/2, nx, endpoint=True)
+    y_centers = np.linspace(y_min + r/2, y_max - r/2, ny, endpoint=True)
+    centers = np.array([(x, y) for x in x_centers for y in y_centers])
+    return centers, r
 
+def LarssonBox2D(H, xrange, yrange, delta):
+    x_min, x_max = xrange
+    y_min, y_max = yrange
+    centers = []
 
-
+    xcenters = np.arange(x_min + H/2, x_max, H)
+    ycenters = np.arange(y_min + H/2, y_max, H)
+    for x in xcenters:
+        for y in ycenters:
+            centers.append((x, y))
+    r = (1 + delta) * np.sqrt(2) * H / 2
+    return np.array(centers), r
 
 
     

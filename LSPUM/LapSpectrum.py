@@ -6,7 +6,7 @@ from scipy.spatial import cKDTree
 from source.PatchTiling import BoxGridTiling2D, LarssonBox2D
 from nodes.SquareDomain import PoissonSquareOne, MinEnergySquareOne
 from source.LSSetup import Setup
-from source.Operators import GenLapMatrix, GenInterp
+from source.Operators import 
 from source.PUWeights import NormalizeWeights
 
 comm = MPI.COMM_WORLD
@@ -74,54 +74,4 @@ local_patches = Setup(
 )
 
 NormalizeWeights(comm, local_patches, M)
-
-n_interp  = local_patches[0].interp_nodes.shape[0] if local_patches else 0
-n_interp  = comm.allreduce(n_interp, op=MPI.MAX)
-N_patches = len(centers)
-
-print(f"[{rank}] Building system matrix ({M} x {N_patches * n_interp})...")
-A = GenLapMatrix(comm, local_patches, M, N_patches, n_interp, groups["boundary:all"])
-
-if rank == 0:
-    # RHS: interior = manufactured forcing, boundary = 0 (sin vanishes on unit-square boundary)
-    f = np.zeros(M)
-    xi = eval_nodes[groups["interior"]]
-    f[groups["interior"]] = -2 * np.pi**2 * np.sin(np.pi * xi[:, 0]) * np.sin(np.pi * xi[:, 1])
-
-    # Dense SVD-based least squares. LSQR stalls on this system because the
-    # overlapping-patch bases make A highly ill-conditioned in the flat limit.
-    # Boundary rows are rescaled to balance Dirichlet vs. interior equations.
-    Ad = A.toarray()
-    bc_idx = groups["boundary:all"]
-    Ad[bc_idx, :] *= bc_scale  # f[bc_idx] is already 0, so no RHS rescaling needed
-
-    print(f"Solving ({Ad.shape[0]} x {Ad.shape[1]}) dense LS...")
-    c, *_ = np.linalg.lstsq(Ad, f, rcond=None)
-else:
-    c = None
-
-c = comm.bcast(c, root=0)
-
-local_cs = [c[p.global_pid * n_interp : (p.global_pid + 1) * n_interp] for p in local_patches]
-
-interp = GenInterp(comm, local_patches, M=M)
-U = interp(local_cs)
-
-if rank == 0:
-    u_exact = np.sin(np.pi * eval_nodes[:, 0]) * np.sin(np.pi * eval_nodes[:, 1])
-    error   = np.abs(U - u_exact)
-    print(f"Max error: {error.max():.2e},  L2 error: {np.sqrt(np.mean(error**2)):.2e}")
-
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    sc0 = axes[0].scatter(eval_nodes[:, 0], eval_nodes[:, 1], c=U,     s=5, cmap='viridis')
-    sc1 = axes[1].scatter(eval_nodes[:, 0], eval_nodes[:, 1], c=error, s=5, cmap='hot_r')
-    plt.colorbar(sc0, ax=axes[0], label='U (computed)')
-    plt.colorbar(sc1, ax=axes[1], label='|error|')
-    axes[0].set_aspect('equal'); axes[0].set_title('PUM Poisson solution')
-    axes[1].set_aspect('equal'); axes[1].set_title('Pointwise error')
-    plt.tight_layout()
-    plt.savefig(plotfolder + '/poisson_solution.png', dpi=150)
-    print("Saved poisson_solution.png")
-
-
 
