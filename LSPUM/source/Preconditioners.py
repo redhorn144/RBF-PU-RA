@@ -27,7 +27,7 @@ def GenBlockJacobi(Rs, n_interp, ridge=1e-14):
 
     Parameters
     ----------
-    Rs       : list[(n_eval_p, n_interp) array]  row matrices (GenRowMatrices)
+    Rs       : list[(n_eval_p, n_interp) array]  row matrices (PoissonRowMatrices)
     n_interp : int                               DOFs per patch
     ridge    : float                             tiny diagonal stabiliser
 

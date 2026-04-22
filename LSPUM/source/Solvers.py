@@ -1,7 +1,7 @@
 import numpy as np
 from mpi4py import MPI
 
-from .Operators import GenRowMatrices, GenMatFreeOps
+from .Operators import PoissonRowMatrices, GenMatFreeOps
 from .Preconditioners import GenBlockJacobi, GenDiagEquil
 from .LSQR import lsqr
 
@@ -13,13 +13,10 @@ from .LSQR import lsqr
 # Usage mirrors the other Gen* factories:
 #
 #     solve  = GenIterativeSolver(comm, patches, M, n_interp)
-#     interp = GenInterp(comm, patches, M=M)
 #     local_cs, itn, rnorm = solve(f)
-#     U = interp(local_cs)
 #
 # solve(f) returns a list of per-patch coefficient vectors (one (n_interp,)
-# array per local patch, same order as `patches`) so it plugs straight
-# into GenInterp / GenLap without any reshaping by the caller.
+# array per local patch, same order as `patches`).
 #---------------------------------------------------------------------------
 
 def GenIterativeSolver(comm, patches, M, n_interp,
@@ -36,7 +33,7 @@ def GenIterativeSolver(comm, patches, M, n_interp,
     patches  : list[Patch]   local patches on this rank (from Setup)
     M        : int           global number of eval nodes
     n_interp : int           DOFs per patch
-    bc_scale : float         Dirichlet row weight (see Operators.GenRowMatrices)
+    bc_scale : float         Dirichlet row weight (see Operators.PoissonRowMatrices)
     preconditioner : str
         'block_jacobi'  per-patch Cholesky of R_p^T R_p   (default; fastest)
         'equilibrate'   column-norm scaling
@@ -51,7 +48,7 @@ def GenIterativeSolver(comm, patches, M, n_interp,
         local_cs : list of (n_interp,) arrays, one per local patch.
         itn, rnorm : iteration count and final residual estimate from LSQR.
     """
-    Rs = GenRowMatrices(patches, bc_scale)
+    Rs = PoissonRowMatrices(patches, bc_scale)
     matvec, rmatvec = GenMatFreeOps(comm, patches, Rs, M, n_interp)
 
     if preconditioner == 'block_jacobi':

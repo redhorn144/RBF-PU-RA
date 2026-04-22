@@ -140,7 +140,7 @@ def apply_Linv(v_local, Ls, n_interp):
 
 
 # ---------------------------------------------------------------------------
-# PUM interpolant for post-solve evaluation (same as GenInterp but flat input).
+# PUM interpolant for post-solve evaluation.
 # ---------------------------------------------------------------------------
 def global_interp(comm, patches, v_local, M, n_interp):
     out_local = np.zeros(M)
@@ -266,21 +266,3 @@ if __name__ == '__main__':
         print(f"   iters={itn}  rnorm={rnorm:.3e}  time={t_bj:.2f}s  "
               f"max|U-u_ex|={err_inf:.3e}  L2={err_l2:.3e}")
 
-    # ---- 4. reference dense SVD (rank 0, single-rank only) ----
-    if rank == 0 and size == 1:
-        print("\n== reference (dense np.linalg.lstsq) ==")
-        from source.Operators import GenLapMatrix
-        A_csr = GenLapMatrix(comm, patches, M, len(centers), n_interp,
-                             groups["boundary:all"])
-        Ad = A_csr.toarray()
-        Ad[groups["boundary:all"], :] *= bc_scale
-        t0 = time.time()
-        c_ref, *_ = np.linalg.lstsq(Ad, f, rcond=None)
-        t_ref = time.time() - t0
-        v_ref = np.concatenate(
-            [c_ref[p.global_pid*n_interp:(p.global_pid+1)*n_interp] for p in patches]
-        )
-        U_ref = global_interp(comm, patches, v_ref, M, n_interp)
-        err_inf = np.max(np.abs(U_ref - u_exact))
-        err_l2  = np.sqrt(np.mean((U_ref - u_exact) ** 2))
-        print(f"   time={t_ref:.2f}s  max|U-u_ex|={err_inf:.3e}  L2={err_l2:.3e}")
