@@ -34,7 +34,7 @@ from mpi4py import MPI
 
 
 def lsqr(comm, matvec, rmatvec, b,
-         atol=1e-8, btol=1e-8, maxiter=None, show=False):
+         atol=1e-8, btol=1e-8, maxiter=None, show=False, reorth=False):
     """
     Distributed LSQR solver.
 
@@ -48,6 +48,10 @@ def lsqr(comm, matvec, rmatvec, b,
     btol     : float  tolerance on ||r|| / ||b||
     maxiter  : int    iteration cap  (default: 4 * len(b))
     show     : bool   print convergence info on rank 0
+    reorth   : bool   if True, reorthogonalize u and v against the complete
+                      iteration history (MGS-style) to counter finite-precision
+                      loss of orthogonality; costs O(itn*M) memory and one
+                      extra Allreduce of size itn per iteration for v
 
     Returns
     -------
@@ -91,6 +95,10 @@ def lsqr(comm, matvec, rmatvec, b,
     norm_x  = 0.0
     istop   = 0         # 0=running, 1=beta breakdown, 2=alpha breakdown, 3=converged
 
+    if reorth:
+        U_hist = [u.copy()]   # global (M,) u vectors, identical on all ranks
+        V_hist = [v.copy()]   # local (n_local,) v vectors
+
     if show and rank == 0:
         print(f"{'itn':>6}  {'rnorm':>12}  {'||Ar||/||A||||r||':>20}")
 
@@ -98,6 +106,11 @@ def lsqr(comm, matvec, rmatvec, b,
 
         # ---- bidiagonalisation ----
         u_new = matvec(v) - alpha * u   # M-vector, identical on all ranks
+
+        if reorth:
+            for u_prev in U_hist:
+                u_new -= np.dot(u_prev, u_new) * u_prev
+
         beta  = np.sqrt(np.dot(u_new, u_new))   # identical on all ranks → no Allreduce
 
         if beta <= beta_tol:
@@ -109,6 +122,14 @@ def lsqr(comm, matvec, rmatvec, b,
         u = u_new / beta
 
         v_new = rmatvec(u) - beta * v   # local block
+
+        if reorth:
+            dots_local = np.array([np.dot(v_prev, v_new) for v_prev in V_hist])
+            dots = np.empty_like(dots_local)
+            comm.Allreduce(dots_local, dots, op=MPI.SUM)
+            for coeff, v_prev in zip(dots, V_hist):
+                v_new -= coeff * v_prev
+
         alpha = np.sqrt(comm.allreduce(np.dot(v_new, v_new), op=MPI.SUM))
 
         if alpha <= alpha_tol:
@@ -117,6 +138,10 @@ def lsqr(comm, matvec, rmatvec, b,
             break
 
         v = v_new / alpha
+
+        if reorth:
+            U_hist.append(u.copy())
+            V_hist.append(v.copy())
 
         # ---- plane rotation (QR step) ----
         rho    = np.hypot(rhobar, beta)

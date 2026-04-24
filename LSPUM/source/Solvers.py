@@ -21,7 +21,8 @@ from .LSQR import lsqr
 
 def GenIterativeSolver(comm, patches, M, n_interp,
                        bc_scale=100.0, preconditioner='block_jacobi',
-                       atol=1e-10, btol=1e-10, maxiter=None, show=False):
+                       atol=1e-10, btol=1e-10, maxiter=None, show=False,
+                       reorth=False):
     """
     Build a parallel iterative least-squares solver for the LS-PUM
     Poisson problem (interior rows = PUM Laplacian, Dirichlet rows = PUM
@@ -38,7 +39,7 @@ def GenIterativeSolver(comm, patches, M, n_interp,
         'block_jacobi'  per-patch Cholesky of R_p^T R_p   (default; fastest)
         'equilibrate'   column-norm scaling
         'none'          plain LSQR
-    atol, btol, maxiter, show
+    atol, btol, maxiter, show, reorth
         Forwarded to source.LSQR.lsqr.
 
     Returns
@@ -66,7 +67,8 @@ def GenIterativeSolver(comm, patches, M, n_interp,
 
     def solve(f):
         y, itn, rnorm = lsqr(comm, mv, rm, f,
-                             atol=atol, btol=btol, maxiter=maxiter, show=show)
+                             atol=atol, btol=btol, maxiter=maxiter,
+                             show=show, reorth=reorth)
         x = apply_PinvT(y)
         return [x[pi*n_interp:(pi+1)*n_interp] for pi in range(len(patches))], itn, rnorm
 
