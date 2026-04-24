@@ -21,7 +21,6 @@ import numpy as np
 from nodes.SquareDomain import MinEnergySquareOne
 from source.PatchTiling import LarssonBox2D
 from source.LSSetup import Setup
-from source.PUWeights import NormalizeWeights
 from source.Solvers import GenIterativeSolver
 
 
@@ -50,9 +49,9 @@ if __name__ == '__main__':
     size = comm.Get_size()
 
     # --- problem ---
-    M        = 2000
+    M        = 8000
     n_interp = 40
-    H        = 0.2
+    H        = 0.1
     delta    = 0.2
     bc_scale = 100.0
     maxiter  = 20000
@@ -81,7 +80,6 @@ if __name__ == '__main__':
                     n_interp=n_interp, node_layout='vogel',
                     assignment='round_robin',
                     K=64, n=16, m=48, eval_epsilon=0)
-    NormalizeWeights(comm, patches, M)
 
     # RHS
     f = np.zeros(M)

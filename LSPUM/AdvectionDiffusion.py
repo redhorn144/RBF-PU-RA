@@ -32,7 +32,6 @@ from nodes.SquareDomain import MinEnergySquareOne
 from source.PatchTiling import LarssonBox2D
 from source.LSSetup import Setup
 from source.Operators import AdvectionDiffusionRowMatrices, InterpolationRowMatrices, assemble_dense
-from source.PUWeights import NormalizeWeights
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
@@ -80,7 +79,6 @@ local_patches = Setup(
     n_interp=n_interp, node_layout='vogel', assignment='round_robin',
     K=64, n=16, m=48, eval_epsilon=0,
 )
-NormalizeWeights(comm, local_patches, M)
 
 # ---------------------------------------------------------------------------
 # Assemble dense operators

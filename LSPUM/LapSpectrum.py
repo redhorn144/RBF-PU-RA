@@ -8,7 +8,6 @@ from source.PatchTiling import BoxGridTiling2D, LarssonBox2D
 from nodes.SquareDomain import PoissonSquareOne, MinEnergySquareOne
 from source.LSSetup import Setup
 from source.Operators import PoissonRowMatrices, InterpolationRowMatrices, assemble_dense
-from source.PUWeights import NormalizeWeights
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
@@ -74,8 +73,6 @@ local_patches = Setup(
     K=64, n=16, m=48, eval_epsilon=eval_eps,
 )
 
-NormalizeWeights(comm, local_patches, M)
-
 # ---------------------------------------------------------------------------
 # Spectrum computation
 #
@@ -111,39 +108,54 @@ A_interp = assemble_dense(comm, local_patches, Rs_interp, M, N_patches, n_interp
 
 if rank == 0:
     int_idx = groups["interior"]
+    bc_idx  = groups["boundary:all"]
 
-    A_L = A_lap[int_idx, :]     # (N_int, N_col)  Laplacian rows
-    A_I = A_interp[int_idx, :]  # (N_int, N_col)  interpolation rows
+    A_L_int = A_lap[int_idx,    :]   # (N_int, N_col)  Laplacian rows at interior nodes
+    A_I_int = A_interp[int_idx, :]   # (N_int, N_col)  interpolation rows at interior nodes
+    A_I_bc  = A_interp[bc_idx,  :]   # (N_bc,  N_col)  interpolation rows at boundary nodes
 
-    # Form the non-symmetric effective operator:
-    #   A_L c ≈ λ A_I c  (LS sense)
-    # → multiply through by A_I^+ = (A_I^T A_I)^{-1} A_I^T
-    # → L_eff c = λ c   where  L_eff = (A_I^T A_I)^{-1} (A_I^T A_L)
+    # ---------------------------------------------------------------------------
+    # Effective Laplacian: L_eff = G_full^{-1} C_int
     #
-    # This is NOT symmetric and admits complex eigenvalues, giving a
-    # full picture of the spectrum in the complex plane.
-    G = A_I.T @ A_I          # (N_col, N_col) Gram matrix for interpolation
-    C = A_I.T @ A_L          # (N_col, N_col) cross Gram matrix
+    # The semi-discrete heat equation  dc/dt = L_eff c  has stable eigenvalues
+    # (Re λ ≤ 0) when Dirichlet BCs enter the MASS matrix (G_full) but NOT the
+    # stiffness matrix (C_int).  The continuous coercivity
+    #   ∫ u Δu = -∫|∇u|² ≤ 0   (u = 0 on ∂Ω)
+    # is preserved discretely only when the boundary penalty term
+    #   bc_scale² · A_I_bc^T A_I_bc
+    # is included in G.  Without it (G = G_int only) the non-symmetric cross
+    # terms from the PU product-rule (∇w̄·D) can push eigenvalues into Re λ > 0.
+    # ---------------------------------------------------------------------------
+    G_int  = A_I_int.T @ A_I_int
+    G_bc   = A_I_bc.T  @ A_I_bc
+    G_full = G_int + bc_scale**2 * G_bc   # BC penalty in mass — key stability condition
+    C_int  = A_I_int.T @ A_L_int          # interior stiffness — unchanged
 
-    reg = 1e-12 * np.trace(G) / G.shape[0]
-    G  += reg * np.eye(G.shape[0])
+    reg = 1e-12 * np.trace(G_full) / G_full.shape[0]
+    G_full += reg * np.eye(G_full.shape[0])
 
-    print("Forming effective Laplacian operator  L_eff = G^{-1} C ...")
-    L_eff = solve(G, C)      # (N_col, N_col), non-symmetric
+    print("Forming effective Laplacian  L_eff = G_full^{-1} C_int ...")
+    L_eff = solve(G_full, C_int)    # (N_col, N_col), non-symmetric but with Re(λ) ≤ 0
 
-    print("Computing eigenvalues of L_eff (unstabilized) ...")
-    evals = np.linalg.eig(L_eff)[0]   # complex in general
+    print("Computing eigenvalues of L_eff ...")
+    evals = np.linalg.eig(L_eff)[0]   # should be real, non-positive
+
+    # bc_scale sweep — shows the coercivity threshold
+    print("\nbc_scale sweep (max Re(λ) of L_eff = G_s^{-1} C_int):")
+    for bcs in [0, 1, 5, 10, 50, 100]:
+        G_s = G_int + bcs**2 * G_bc
+        G_s += (1e-12 * np.trace(G_s) / G_s.shape[0]) * np.eye(G_s.shape[0])
+        ev = np.linalg.eig(solve(G_s, C_int))[0]
+        stable = ev.real.max() <= 1e-8
+        print(f"  bc_scale={bcs:4d}  max Re(λ)={ev.real.max():+.3e}  stable={stable}")
 
     # Squared LS Laplacian: K = A_L^T A_L, always PSD.
-    # K v = μ G v  →  μ = ||Δu_v||²/||u_v||² ≥ 0 by construction.
-    # For a true eigenfunction Δu = λu: μ = λ² → λ = -√μ (Dirichlet BCs → λ < 0).
-    # This guarantees all eigenvalues are real and in the left half-plane, unlike the
-    # asymmetric Petrov-Galerkin C_sym approach which requires the discrete
-    # quadrature identity ∑ u·Δu ≈ -∫|∇u|² to hold exactly.
-    K = A_L.T @ A_L
+    # K v = μ G_full v  →  μ = ||Δu_v||²/||u_v||²_G ≥ 0 by construction.
+    # For a true eigenfunction Δu = λu: μ = λ² → λ = -√μ ≤ 0 (Dirichlet BCs).
+    K = A_L_int.T @ A_L_int
 
-    print("Computing eigenvalues of stabilized operator (K v = μ G v) ...")
-    mu = eigh(K, G, eigvals_only=True)          # μ ≥ 0, ascending
+    print("\nComputing eigenvalues of stabilized operator (K v = μ G_full v) ...")
+    mu = eigh(K, G_full, eigvals_only=True)      # μ ≥ 0, ascending
     evals_stab = np.sort(-np.sqrt(np.maximum(mu, 0.0)))  # real, ≤ 0, ascending
 
     # Analytic Dirichlet eigenvalues for -Δ on unit square: π²(m²+n²)  (positive)
@@ -158,24 +170,27 @@ if rank == 0:
     )  # ascending (most negative first)
 
     print(f"\nFirst 6 analytic eigenvalues (Δ): {np.array(analytic_neg[:6])}")
-    print(f"Unstabilized real range : [{evals.real.min():.3e}, {evals.real.max():.3e}]")
-    print(f"Unstabilized imag range : [{evals.imag.min():.3e}, {evals.imag.max():.3e}]")
+    print(f"L_eff real range : [{evals.real.min():.3e}, {evals.real.max():.3e}]")
+    print(f"L_eff imag range : [{evals.imag.min():.3e}, {evals.imag.max():.3e}]")
+    print(f"All L_eff Re(λ) ≤ 0: {np.all(evals.real <= 1e-8)}")
     print(f"Stabilized range        : [{evals_stab.min():.4e}, {evals_stab.max():.4e}]")
     print(f"All stabilized evals ≤ 0: {np.all(evals_stab <= 1e-8)}")
 
     fig, axes = plt.subplots(1, 3, figsize=(21, 6))
 
-    # Panel 0: unstabilized — full complex plane scatter
+    # Panel 0: L_eff = G_full^{-1} C_int — complex plane scatter
     im_ratio = np.abs(evals.imag) / (np.abs(evals.real) + 1e-30)
     sc = axes[0].scatter(evals.real, evals.imag, c=np.log10(im_ratio + 1e-10),
                          cmap='plasma', s=6, alpha=0.8)
-    for lam in analytic[:60]:
+    for lam in analytic_neg[:60]:
         axes[0].axvline(lam, color='cyan', lw=0.4, alpha=0.4)
     plt.colorbar(sc, ax=axes[0], label='log₁₀(|Im|/|Re|)')
     axes[0].axhline(0, color='k', lw=0.5)
+    axes[0].axvline(0, color='r', lw=0.8, alpha=0.5, label='Im axis')
     axes[0].set_xlabel('Re(λ)')
     axes[0].set_ylabel('Im(λ)')
-    axes[0].set_title('Unstabilized L_eff — complex plane')
+    axes[0].set_title(f'L_eff = G_full⁻¹ C_int  (bc_scale={bc_scale})\n'
+                      f'BC penalty in mass → Re(λ) ≤ 0')
 
     # Panel 1: stabilized — all eigenvalues on the negative real axis
     axes[1].scatter(evals_stab, np.zeros_like(evals_stab),

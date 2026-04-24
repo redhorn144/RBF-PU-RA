@@ -32,7 +32,6 @@ from nodes.SquareDomain import MinEnergySquareOne
 from source.PatchTiling import LarssonBox2D
 from source.LSSetup import Setup
 from source.Operators import PoissonRowMatrices, InterpolationRowMatrices, assemble_dense
-from source.PUWeights import NormalizeWeights
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
@@ -76,7 +75,6 @@ local_patches = Setup(
     n_interp=n_interp, node_layout='vogel', assignment='round_robin',
     K=64, n=16, m=48, eval_epsilon=0,
 )
-NormalizeWeights(comm, local_patches, M)
 
 # ---------------------------------------------------------------------------
 # Assemble dense operators (MPI-distributed, result is identical on all ranks)
@@ -113,6 +111,17 @@ if rank == 0:
     # Normal equations:
     #   (A_step_int^T A_step_int  +  bc_scale^2 A_I_bc^T A_I_bc) c
     #       = A_step_int^T (A_I_int c^n)
+    #
+    # Stability note: expanding A_step^T A_step gives
+    #   G_int - dt(C + C^T) + dt^2 K  +  bc_scale^2 G_bc
+    # where G_int = A_I_int^T A_I_int, C = A_I_int^T A_L_int, K = A_L_int^T A_L_int,
+    # G_bc = A_I_bc^T A_I_bc.  The bc_scale^2 G_bc term is the Dirichlet penalty in
+    # the mass matrix — this is precisely the condition (Larsson et al. 2017,
+    # Schweitzer 2009) that ensures the semi-discrete effective operator
+    #   L_eff = (G_int + bc_scale^2 G_bc)^{-1} C
+    # has all eigenvalues in the left half-plane.  Backward Euler is A-stable so
+    # the implicit scheme is unconditionally stable, but bc_scale > 0 is what
+    # guarantees the underlying spatial operator is stable for any time-integrator.
     #
     A_step_int = A_I_int - dt * A_L_int
 

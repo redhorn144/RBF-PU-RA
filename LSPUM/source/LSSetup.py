@@ -5,6 +5,7 @@ from mpi4py import MPI
 from .Patch import Patch
 from .PatchNodes import GenPatchNodes
 from .RAHelpers import PhiFactors, StableMatricesLS
+from .PUWeights import NormalizeWeights
 
 def Setup(comm, eval_nodes, normals, bc_flags, centers, r, n_interp=30, node_layout='vogel', assignment='round_robin',
           K=64, n=16, m=48, eval_epsilon=0):
@@ -66,6 +67,7 @@ def Setup(comm, eval_nodes, normals, bc_flags, centers, r, n_interp=30, node_lay
             global_pid   = i,                                    # (int)
         ))
 
+    NormalizeWeights(comm, local_patches, len(eval_nodes))
     return local_patches
 
 def RoundRobin(rank, size, num_patches):
