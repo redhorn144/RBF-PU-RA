@@ -173,15 +173,7 @@ def build_halo_comm(comm, patches, eval_nodes, centers, r_patch, patch_rank):
     g2l           = np.full(M, -1, dtype=np.int64)
     g2l[owned_indices] = np.arange(n_owned, dtype=np.int64)
 
-    # ---- 3. Eval-node index sets for ALL global patches (deterministic, no MPI) ----
-    eval_tree     = cKDTree(eval_nodes)
-    all_eval_idxs = [
-        np.asarray(eval_tree.query_ball_point(c, r=r_patch), dtype=np.int64)
-        for c in centers
-    ]
-
-    # ---- 4. Build send / recv global-index sets ----
-    # mv_send: local patches contribute to eval nodes owned by other ranks
+    # ---- 3. Build send_sets from local patches only — O(P_r * n_e) ----
     send_sets = {}
     for p in patches:
         for gidx in p.eval_node_indices:
@@ -189,27 +181,50 @@ def build_halo_comm(comm, patches, eval_nodes, centers, r_patch, patch_rank):
             if nbr != rank:
                 send_sets.setdefault(nbr, set()).add(int(gidx))
 
-    # mv_recv: remote patches contribute to our owned eval nodes
-    recv_sets = {}
-    for pid, idxs in enumerate(all_eval_idxs):
-        nbr = int(patch_rank[pid])
-        if nbr == rank:
-            continue
-        for gidx in idxs:
-            if node_home_rank[gidx] == rank:
-                recv_sets.setdefault(nbr, set()).add(int(gidx))
+    # ---- 4. Derive recv_sets via Alltoall(v) — eliminates O(P*n_e) global work ----
+    # 4a. Tell every rank how many indices we will send it
+    send_counts = np.zeros(size, dtype=np.int32)
+    for r, s in send_sets.items():
+        send_counts[r] = len(s)
 
-    neighbor_ranks = sorted(set(send_sets) | set(recv_sets))
+    recv_counts = np.empty(size, dtype=np.int32)
+    comm.Alltoall(send_counts, recv_counts)
 
-    mv_send_gidx = {
-        s: np.sort(np.fromiter(send_sets.get(s, ()), dtype=np.int64))
-        for s in neighbor_ranks
-    }
-    mv_recv_gidx = {
-        s: np.sort(np.fromiter(recv_sets.get(s, ()), dtype=np.int64))
-        for s in neighbor_ranks
-    }
-    mv_recv_lidx = {s: g2l[mv_recv_gidx[s]] for s in neighbor_ranks}
+    # 4b. Pack sorted send index arrays and build mv_send_gidx simultaneously
+    send_parts = []
+    mv_send_gidx = {}
+    for r in range(size):
+        if r in send_sets:
+            arr = np.sort(np.fromiter(send_sets[r], dtype=np.int64))
+            mv_send_gidx[r] = arr
+            send_parts.append(arr)
+        else:
+            send_parts.append(np.empty(0, dtype=np.int64))
+
+    send_buf    = np.concatenate(send_parts)
+    send_displs = np.zeros(size, dtype=np.int32)
+    send_displs[1:] = np.cumsum(send_counts[:-1])
+
+    recv_buf    = np.empty(int(recv_counts.sum()), dtype=np.int64)
+    recv_displs = np.zeros(size, dtype=np.int32)
+    recv_displs[1:] = np.cumsum(recv_counts[:-1])
+
+    comm.Alltoallv(
+        [send_buf, send_counts, send_displs, MPI.INT64_T],
+        [recv_buf, recv_counts, recv_displs, MPI.INT64_T],
+    )
+
+    # 4c. Unpack into mv_recv_gidx — buffers arrive already sorted
+    mv_recv_gidx = {}
+    for r in range(size):
+        if recv_counts[r] > 0:
+            start = int(recv_displs[r])
+            mv_recv_gidx[r] = recv_buf[start : start + recv_counts[r]]
+
+    neighbor_ranks = sorted(set(mv_send_gidx) | set(mv_recv_gidx))
+    mv_send_gidx   = {s: mv_send_gidx.get(s, np.empty(0, dtype=np.int64)) for s in neighbor_ranks}
+    mv_recv_gidx   = {s: mv_recv_gidx.get(s, np.empty(0, dtype=np.int64)) for s in neighbor_ranks}
+    mv_recv_lidx   = {s: g2l[mv_recv_gidx[s]] for s in neighbor_ranks}
 
     # ---- 5. Per-patch halo info ----
     patch_halo = []

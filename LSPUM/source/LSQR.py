@@ -92,7 +92,6 @@ def lsqr(comm, matvec, rmatvec, b,
 
     rnorm   = phibar
     norm_Ar = alpha
-    norm_x  = 0.0
     istop   = 0         # 0=running, 1=beta breakdown, 2=alpha breakdown, 3=converged
 
     if reorth:
@@ -160,7 +159,6 @@ def lsqr(comm, matvec, rmatvec, b,
         norm_A  = np.hypot(norm_A, alpha)
         rnorm   = phibar                          # ||b - A x|| estimate
         norm_Ar = abs(phibar * alpha * c)         # ||A^T r|| estimate
-        norm_x  = np.sqrt(comm.allreduce(np.dot(x, x), op=MPI.SUM))
 
         test1 = rnorm   / (norm_b  + 1e-300)
         test2 = norm_Ar / (norm_A * rnorm + 1e-300)

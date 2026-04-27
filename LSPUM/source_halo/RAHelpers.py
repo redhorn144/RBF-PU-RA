@@ -200,10 +200,8 @@ def GenRAab(fj_mat, es, n, m):
     R_mat = R_mat[:m + 1, :]   # (m+1, m+1) upper triangular
 
     # --- Step 2: Left-multiply all F_j and g_j by Q^T ---
-    # FR is (K, n, M), gr is (K, M)
-    for j in range(M):
-        FR[:, :, j] = QT @ FR[:, :, j]
-        gr[:, j] = QT @ gr[:, j]
+    FR = (QT @ FR.reshape(K, -1)).reshape(K, n, M)
+    gr = QT @ gr
 
     # --- Step 3: Separate top (rows 0..m) and bottom (rows m+1..K-1) ---
     FT = FR[:m + 1, :, :]         # (m+1, n, M) — for numerator back-sub

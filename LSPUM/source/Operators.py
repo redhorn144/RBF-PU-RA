@@ -31,19 +31,21 @@ def PoissonRowMatrices(patches, bc_scale=1.0):
 
 def AdvectionDiffusionRowMatrices(patches, a, nu=1.0, bc_scale=1.0):
     """
-    Per-patch row matrices for the LS-PUM advection-diffusion system  ν·Δu + a·∇u.
+    Per-patch row matrices for the LS-PUM advection-diffusion system  ν·Δu − a·∇u.
+
+    Discretises the standard transport form  du/dt + a·∇u = ν·Δu, so that a
+    bump in u advects in the direction of +a.
 
     Applies the product rule to each PUM-weighted basis function ψ_p φ_j:
 
         ν·Δ(ψ_p φ_j) = ν·(w_bar·L  +  2 gw_bar·D  +  lw_bar·E)   [diffusion]
         a·∇(ψ_p φ_j) = (a·D_w)·E  +  w_bar·(a·D)                  [advection]
 
-    where  D_w = a · gw_bar  (scalar per node, dot product of velocity with
-    weight gradient) and  a·D = Σ_k a_k D[k]  (directional derivative of basis).
+    where  D_w = a · gw_bar  (scalar per node) and  a·D = Σ_k a_k D[k].
 
         interior  i :  R_p[i,:] = ν*(w_bar*L + 2 gw_bar·D + lw_bar*E)[i,:]
-                                 + w_bar[i]*(a·D)[i,:]
-                                 + (a·gw_bar[i])*E[i,:]
+                                 − w_bar[i]*(a·D)[i,:]
+                                 − (a·gw_bar[i])*E[i,:]
         Dirichlet i :  R_p[i,:] = bc_scale * w_bar[i] * E[i,:]
 
     Parameters
@@ -59,8 +61,8 @@ def AdvectionDiffusionRowMatrices(patches, a, nu=1.0, bc_scale=1.0):
         R = (nu * (p.w_bar[:, None] * p.L
                    + 2.0 * np.einsum('id,dij->ij', p.gw_bar, p.D)
                    + p.lw_bar[:, None] * p.E)
-             + p.w_bar[:, None] * np.einsum('d,dij->ij', a, p.D)
-             + np.einsum('d,id->i', a, p.gw_bar)[:, None] * p.E)
+             - p.w_bar[:, None] * np.einsum('d,dij->ij', a, p.D)
+             - np.einsum('d,id->i', a, p.gw_bar)[:, None] * p.E)
         bc_mask = (p.bc_flags == 'd')
         if bc_mask.any():
             R[bc_mask] = bc_scale * p.w_bar[bc_mask, None] * p.E[bc_mask]

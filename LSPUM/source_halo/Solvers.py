@@ -1,24 +1,14 @@
 import numpy as np
 from mpi4py import MPI
 
-from .Operators import PoissonRowMatrices, GenMatFreeOps
-from .Preconditioners import GenBlockJacobi, GenDiagEquil
+from .Operators import GenMatFreeOps
+from .Preconditioners import GenBlockJacobi, GenDiagEquil, GenRAS
 from .LSQR import lsqr
+from .PCG import pcg
 
-#---------------------------------------------------------------------------
-# Parallel iterative solver for the LS-RBF-PUM Poisson system.
-#
-# Halo-exchange variant: b and u vectors are distributed (each rank holds
-# only the eval nodes in its home boxes).  The solver call changes to:
-#
-#     solve = GenIterativeSolver(comm, patches, halo, n_interp)
-#     local_cs, itn, rnorm = solve(f_owned)
-#
-# where f_owned = f[halo.owned_indices] (the caller slices before passing).
-#---------------------------------------------------------------------------
 
-def GenIterativeSolver(comm, patches, halo, n_interp,
-                       bc_scale=100.0, preconditioner='block_jacobi',
+def GenIterativeSolver(comm, patches, halo, n_interp, Rs,
+                       preconditioner='block_jacobi',
                        atol=1e-10, btol=1e-10, maxiter=None, show=False,
                        reorth=False):
     """
@@ -27,23 +17,32 @@ def GenIterativeSolver(comm, patches, halo, n_interp,
     Parameters
     ----------
     comm     : MPI communicator
-    patches  : list[Patch]   local patches (w_bar etc. already set by Setup)
-    halo     : HaloComm      from Setup — owns the communication graph
-    n_interp : int           DOFs per patch
-    bc_scale : float         Dirichlet row weight
-    preconditioner : str     'block_jacobi' | 'equilibrate' | 'none'
-    atol, btol, maxiter, show, reorth
-        Forwarded to LSQR.lsqr.
+    patches  : list[Patch]
+    halo     : HaloComm
+    n_interp : int
+    Rs       : list[(n_eval_p, n_interp) ndarray]  row matrices (e.g. PoissonRowMatrices)
+    preconditioner : 'block_jacobi' | 'equilibrate' | 'none' | 'ras'
+        'ras' uses PCG on the normal equations with a symmetric additive Schwarz
+        left preconditioner; the others use right-preconditioned LSQR.
 
     Returns
     -------
-    solve : callable
-        solve(f_owned) -> (local_cs, itn, rnorm)
-        f_owned  : (n_owned,) slice of the global RHS (f[halo.owned_indices])
-        local_cs : list of (n_interp,) arrays, one per local patch
+    solve(f_owned) -> (local_cs, itn, rnorm)
+        f_owned  : (n_owned,) owned slice of the RHS
+        local_cs : list of (n_interp,) coefficient arrays, one per local patch
     """
-    Rs = PoissonRowMatrices(patches, bc_scale)
     matvec, rmatvec = GenMatFreeOps(patches, Rs, halo, n_interp)
+
+    if preconditioner == 'ras':
+        apply_sas = GenRAS(comm, patches, Rs, n_interp)
+
+        def solve(f_owned):
+            x, itn, rnorm = pcg(comm, matvec, rmatvec, f_owned,
+                                 M_inv=apply_sas, atol=atol, maxiter=maxiter,
+                                 show=show)
+            return [x[pi*n_interp:(pi+1)*n_interp] for pi in range(len(patches))], itn, rnorm
+
+        return solve
 
     if preconditioner == 'block_jacobi':
         apply_Pinv, apply_PinvT = GenBlockJacobi(Rs, n_interp)

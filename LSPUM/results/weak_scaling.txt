@@ -1,0 +1,154 @@
+
+════════════════════════════════════════════════════════════════════════
+  ScalingTest  ranks=1  n_interp=40  K=64  n=16  m=48  DELTA=0.2
+════════════════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════════════════
+  M=2500  P=25  n_interp=40  ranks=1  H=0.2
+════════════════════════════════════════════════════════════════════════
+  Topology (mean across ranks)
+    patches / rank     :     25.0
+    owned nodes / rank :     2500
+    eval nodes / patch :    199.2
+    neighbor ranks     :      0.0
+    halo send (nodes)  :        0
+    halo recv (nodes)  :        0
+
+  Setup breakdown  (wall-clock; sub-times are mean over 5 reps)
+    Total setup            :    6.881 s
+    ├─ PhiFactors (rank 0) :    0.005 s   (  0.1%)
+    ├─ PhiFactors bcast    :   0.0003 s   (  0.0%)
+    ├─ Patch build  (≈)    :    6.874 s   ( 99.9%)
+    ├─ build_halo_comm     :    0.001 s   (  0.0%)
+    └─ NormalizeWeights    :    0.002 s   (  0.0%)
+
+  Per-iteration  (mean ms  [max ms] over 20 reps, barrier-bracketed)
+    matvec                 :   0.058 ms  [max   0.087]
+    rmatvec                :   0.052 ms  [max   0.132]
+    mv  halo exchange only :   0.000 ms              comm fraction 0.7%
+    rmv halo exchange only :   0.000 ms              comm fraction 0.6%
+    scalar Allreduce       :   0.009 ms
+    est. barriers/iter     :   0.018 ms  (2 per iter: β norm + α norm)
+
+  LSQR solve  (block-Jacobi, atol=btol=1e-10)
+    itn=1170  rnorm=1.211e-04  time=0.63 s
+SCALING_ROW ranks=1 M=2500 H=0.2 P=25 t_setup=6.8815 t_phi_compute=0.0049 t_phi_bcast=0.0003 t_patch=6.8737 t_halo_comm=0.0008 t_norm=0.0018 t_mv=0.0582 t_rmv=0.0522 t_comm_mv=0.0004 t_comm_rmv=0.0003 t_ar=0.0089 t_solve=0.6344 itn=1170 rnorm=1.2110e-04 P_r=25 n_owned=2500
+
+════════════════════════════════════════════════════════════════════════
+
+
+════════════════════════════════════════════════════════════════════════
+  ScalingTest  ranks=2  n_interp=40  K=64  n=16  m=48  DELTA=0.2
+════════════════════════════════════════════════════════════════════════
+Node 4493 ([0.99885723 0.        ]) is unusually close to a neighboring node.
+
+════════════════════════════════════════════════════════════════════════
+  M=5000  P=49  n_interp=40  ranks=2  H=0.1414
+════════════════════════════════════════════════════════════════════════
+  Topology (mean across ranks)
+    patches / rank     :     24.5
+    owned nodes / rank :     2500
+    eval nodes / patch :    209.0
+    neighbor ranks     :      1.0
+    halo send (nodes)  :      204
+    halo recv (nodes)  :      204
+
+  Setup breakdown  (wall-clock; sub-times are mean over 5 reps)
+    Total setup            :    9.132 s
+    ├─ PhiFactors (rank 0) :    0.005 s   (  0.1%)
+    ├─ PhiFactors bcast    :   0.0003 s   (  0.0%)
+    ├─ Patch build  (≈)    :    9.123 s   ( 99.9%)
+    ├─ build_halo_comm     :    0.001 s   (  0.0%)
+    └─ NormalizeWeights    :    0.002 s   (  0.0%)
+
+  Per-iteration  (mean ms  [max ms] over 20 reps, barrier-bracketed)
+    matvec                 :   0.098 ms  [max   0.262]
+    rmatvec                :   0.070 ms  [max   0.104]
+    mv  halo exchange only :   0.002 ms              comm fraction 2.0%
+    rmv halo exchange only :   0.002 ms              comm fraction 3.0%
+    scalar Allreduce       :   0.003 ms
+    est. barriers/iter     :   0.006 ms  (2 per iter: β norm + α norm)
+
+  LSQR solve  (block-Jacobi, atol=btol=1e-10)
+    itn=1866  rnorm=7.689e-04  time=1.14 s
+SCALING_ROW ranks=2 M=5000 H=0.1414 P=49 t_setup=9.1320 t_phi_compute=0.0052 t_phi_bcast=0.0003 t_patch=9.1234 t_halo_comm=0.0012 t_norm=0.0019 t_mv=0.0981 t_rmv=0.0703 t_comm_mv=0.0019 t_comm_rmv=0.0021 t_ar=0.0029 t_solve=1.1399 itn=1866 rnorm=7.6890e-04 P_r=24 n_owned=2500
+
+════════════════════════════════════════════════════════════════════════
+
+
+════════════════════════════════════════════════════════════════════════
+  ScalingTest  ranks=4  n_interp=40  K=64  n=16  m=48  DELTA=0.2
+════════════════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════════════════
+  M=10000  P=100  n_interp=40  ranks=4  H=0.1
+════════════════════════════════════════════════════════════════════════
+  Topology (mean across ranks)
+    patches / rank     :     25.0
+    owned nodes / rank :     2500
+    eval nodes / patch :    212.5
+    neighbor ranks     :      3.0
+    halo send (nodes)  :      296
+    halo recv (nodes)  :      296
+
+  Setup breakdown  (wall-clock; sub-times are mean over 5 reps)
+    Total setup            :   12.187 s
+    ├─ PhiFactors (rank 0) :    0.005 s   (  0.0%)
+    ├─ PhiFactors bcast    :   0.0004 s   (  0.0%)
+    ├─ Patch build  (≈)    :   12.178 s   ( 99.9%)
+    ├─ build_halo_comm     :    0.002 s   (  0.0%)
+    └─ NormalizeWeights    :    0.002 s   (  0.0%)
+
+  Per-iteration  (mean ms  [max ms] over 20 reps, barrier-bracketed)
+    matvec                 :   0.100 ms  [max   0.172]
+    rmatvec                :   0.074 ms  [max   0.126]
+    mv  halo exchange only :   0.006 ms              comm fraction 6.4%
+    rmv halo exchange only :   0.006 ms              comm fraction 7.5%
+    scalar Allreduce       :   0.004 ms
+    est. barriers/iter     :   0.009 ms  (2 per iter: β norm + α norm)
+
+  LSQR solve  (block-Jacobi, atol=btol=1e-10)
+    itn=4242  rnorm=5.613e-04  time=3.15 s
+SCALING_ROW ranks=4 M=10000 H=0.1 P=100 t_setup=12.1867 t_phi_compute=0.0046 t_phi_bcast=0.0004 t_patch=12.1776 t_halo_comm=0.0023 t_norm=0.0019 t_mv=0.1003 t_rmv=0.0738 t_comm_mv=0.0064 t_comm_rmv=0.0056 t_ar=0.0044 t_solve=3.1538 itn=4242 rnorm=5.6125e-04 P_r=25 n_owned=2500
+
+════════════════════════════════════════════════════════════════════════
+
+
+════════════════════════════════════════════════════════════════════════
+  ScalingTest  ranks=8  n_interp=40  K=64  n=16  m=48  DELTA=0.2
+════════════════════════════════════════════════════════════════════════
+Node 5892 ([0.99970799 0.        ]) is unusually close to a neighboring node.
+
+════════════════════════════════════════════════════════════════════════
+  M=20000  P=196  n_interp=40  ranks=8  H=0.0707
+════════════════════════════════════════════════════════════════════════
+  Topology (mean across ranks)
+    patches / rank     :     24.5
+    owned nodes / rank :     2500
+    eval nodes / patch :    219.0
+    neighbor ranks     :      4.0
+    halo send (nodes)  :      417
+    halo recv (nodes)  :      417
+
+  Setup breakdown  (wall-clock; sub-times are mean over 5 reps)
+    Total setup            :   25.764 s
+    ├─ PhiFactors (rank 0) :    0.005 s   (  0.0%)
+    ├─ PhiFactors bcast    :   0.0006 s   (  0.0%)
+    ├─ Patch build  (≈)    :   25.753 s   (100.0%)
+    ├─ build_halo_comm     :    0.004 s   (  0.0%)
+    └─ NormalizeWeights    :    0.002 s   (  0.0%)
+
+  Per-iteration  (mean ms  [max ms] over 20 reps, barrier-bracketed)
+    matvec                 :   0.112 ms  [max   0.144]
+    rmatvec                :   0.087 ms  [max   0.136]
+    mv  halo exchange only :   0.008 ms              comm fraction 7.0%
+    rmv halo exchange only :   0.009 ms              comm fraction 10.7%
+    scalar Allreduce       :   0.009 ms
+    est. barriers/iter     :   0.017 ms  (2 per iter: β norm + α norm)
+
+  LSQR solve  (block-Jacobi, atol=btol=1e-10)
+    itn=5000  rnorm=1.982e-02  time=4.67 s
+SCALING_ROW ranks=8 M=20000 H=0.0707 P=196 t_setup=25.7644 t_phi_compute=0.0049 t_phi_bcast=0.0006 t_patch=25.7530 t_halo_comm=0.0039 t_norm=0.0022 t_mv=0.1123 t_rmv=0.0874 t_comm_mv=0.0079 t_comm_rmv=0.0093 t_ar=0.0087 t_solve=4.6693 itn=5000 rnorm=1.9815e-02 P_r=24 n_owned=2500
+
+════════════════════════════════════════════════════════════════════════
+

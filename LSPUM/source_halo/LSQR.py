@@ -78,7 +78,6 @@ def lsqr(comm, matvec, rmatvec, b,
 
     rnorm   = phibar
     norm_Ar = alpha
-    norm_x  = 0.0
     istop   = 0
 
     if reorth:
@@ -147,7 +146,6 @@ def lsqr(comm, matvec, rmatvec, b,
         norm_A  = np.hypot(norm_A, alpha)
         rnorm   = phibar
         norm_Ar = abs(phibar * alpha * c)
-        norm_x  = np.sqrt(comm.allreduce(np.dot(x, x), op=MPI.SUM))
 
         test1 = rnorm   / (norm_b  + 1e-300)
         test2 = norm_Ar / (norm_A * rnorm + 1e-300)

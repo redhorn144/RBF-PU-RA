@@ -26,8 +26,8 @@ def AdvectionDiffusionRowMatrices(patches, a, nu=1.0, bc_scale=1.0):
         R = (nu * (p.w_bar[:, None] * p.L
                    + 2.0 * np.einsum('id,dij->ij', p.gw_bar, p.D)
                    + p.lw_bar[:, None] * p.E)
-             + p.w_bar[:, None] * np.einsum('d,dij->ij', a, p.D)
-             + np.einsum('d,id->i', a, p.gw_bar)[:, None] * p.E)
+             - p.w_bar[:, None] * np.einsum('d,dij->ij', a, p.D)
+             - np.einsum('d,id->i', a, p.gw_bar)[:, None] * p.E)
         bc_mask = (p.bc_flags == 'd')
         if bc_mask.any():
             R[bc_mask] = bc_scale * p.w_bar[bc_mask, None] * p.E[bc_mask]
@@ -120,6 +120,64 @@ def GenMatFreeOps(patches, Rs, halo, n_interp):
         return v_local
 
     return matvec, rmatvec
+
+
+def HelmholtzStepRowMatrices(patches, alpha, dt, nu, bc_scale=1.0):
+    """Row matrices for (alpha·I − dt·ν·Δ)u — implicit BDF diffusion step."""
+    Rs = []
+    for p in patches:
+        R_lap = (p.w_bar[:, None] * p.L
+                 + 2.0 * np.einsum('id,dij->ij', p.gw_bar, p.D)
+                 + p.lw_bar[:, None] * p.E)
+        R = alpha * p.w_bar[:, None] * p.E - dt * nu * R_lap
+        bc_mask = p.bc_flags == 'd'
+        if bc_mask.any():
+            R[bc_mask] = bc_scale * p.w_bar[bc_mask, None] * p.E[bc_mask]
+        Rs.append(R)
+    return Rs
+
+
+def AdvectionRowMatrices(patches, a):
+    """Row matrices for −a·∇u at all eval nodes (no BC override — for RHS evaluation only)."""
+    a = np.asarray(a, dtype=float)
+    Rs = []
+    for p in patches:
+        Rs.append(-(p.w_bar[:, None] * np.einsum('d,dij->ij', a, p.D)
+                    + np.einsum('d,id->i', a, p.gw_bar)[:, None] * p.E))
+    return Rs
+
+
+def HeatStepRowMatrices(patches, dt, bc_scale=1.0):
+    """Backward-Euler heat equation: rows for (I - dt·Δ)u^{n+1} = u^n."""
+    Rs = []
+    for p in patches:
+        R_lap = (p.w_bar[:, None] * p.L
+                 + 2.0 * np.einsum('id,dij->ij', p.gw_bar, p.D)
+                 + p.lw_bar[:, None] * p.E)
+        R = p.w_bar[:, None] * p.E - dt * R_lap
+        bc_mask = p.bc_flags == 'd'
+        if bc_mask.any():
+            R[bc_mask] = bc_scale * p.w_bar[bc_mask, None] * p.E[bc_mask]
+        Rs.append(R)
+    return Rs
+
+
+def ADStepRowMatrices(patches, a, dt, nu=1.0, bc_scale=1.0):
+    """Backward-Euler advection-diffusion: rows for (I - dt·(ν·Δ + a·∇))u^{n+1} = u^n."""
+    a = np.asarray(a, dtype=float)
+    Rs = []
+    for p in patches:
+        R_ad = (nu * (p.w_bar[:, None] * p.L
+                      + 2.0 * np.einsum('id,dij->ij', p.gw_bar, p.D)
+                      + p.lw_bar[:, None] * p.E)
+                - p.w_bar[:, None] * np.einsum('d,dij->ij', a, p.D)
+                - np.einsum('d,id->i', a, p.gw_bar)[:, None] * p.E)
+        R = p.w_bar[:, None] * p.E - dt * R_ad
+        bc_mask = p.bc_flags == 'd'
+        if bc_mask.any():
+            R[bc_mask] = bc_scale * p.w_bar[bc_mask, None] * p.E[bc_mask]
+        Rs.append(R)
+    return Rs
 
 
 def assemble_dense(comm, patches, Rs, M, N_patches, n_interp):

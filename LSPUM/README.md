@@ -1,6 +1,6 @@
 # LS-RBF-PUM Solver
 
-A distributed-memory solver for 2D PDEs using a **Least-Squares Radial Basis Function Partition of Unity Method (LS-RBF-PUM)**. The domain is covered by overlapping RBF patches weighted by a Wendland C² partition of unity; the resulting overdetermined system is solved iteratively with LSQR and a block-Jacobi preconditioner.
+A distributed-memory solver for 2D PDEs using a **Least-Squares Radial Basis Function Partition of Unity Method (LS-RBF-PUM)**. The domain is covered by overlapping RBF patches weighted by a Wendland C² partition of unity; the resulting overdetermined system is solved iteratively using LSQR (block-Jacobi preconditioner) or preconditioned CG with a symmetric additive Schwarz preconditioner.
 
 Two parallel backends are provided:
 
@@ -31,6 +31,8 @@ RBF matrices are computed via a **contour-integral rational approximation** (Wri
 
 The overdetermined system is solved with **LSQR** (Paige & Saunders 1982), optionally preconditioned by a block-Jacobi factorisation of the per-patch normal-equation blocks. Full Lanczos reorthogonalisation is also available for stagnating problems.
 
+A **symmetric additive Schwarz (SAS)** preconditioner is also available (`'ras'`), exclusively in the halo-exchange backend. It extends each patch's local system to include its 1-ring of geometric neighbours, factoring the extended A^T A block via Cholesky. Used as a left preconditioner in **PCG** on the normal equations, it captures the cross-patch coupling that block-Jacobi ignores and produces iteration counts that are largely independent of patch count and rank layout.
+
 ---
 
 ## Repository layout
@@ -58,6 +60,8 @@ LSPUM/
 │   ├── Operators.py         # GenMatFreeOps — halo-exchange matvec
 │   ├── Solvers.py           # GenIterativeSolver — takes halo instead of M
 │   ├── LSQR.py              # Distributed LSQR over owned-node slices
+│   ├── PCG.py               # Preconditioned CG on the normal equations (for RAS)
+│   ├── Preconditioners.py   # Block-Jacobi, column equilibration, symmetric additive Schwarz
 │   └── ...                  # PUWeights, Patch, PatchTiling, RAHelpers identical
 │
 ├── nodes/
@@ -124,8 +128,9 @@ ii = groups["interior"]
 f[ii] = -2*np.pi**2 * np.sin(np.pi*eval_nodes[ii,0]) * np.sin(np.pi*eval_nodes[ii,1])
 
 # --- solve ---
-solve = GenIterativeSolver(comm, patches, M, n_interp=40,
-                           bc_scale=100.0, preconditioner='block_jacobi',
+Rs = PoissonRowMatrices(patches, bc_scale=100.0)
+solve = GenIterativeSolver(comm, patches, M, n_interp=40, Rs,
+                           preconditioner='block_jacobi',
                            atol=1e-10, btol=1e-10, maxiter=5000)
 local_cs, itn, rnorm = solve(f)
 ```
@@ -144,9 +149,10 @@ patches, halo = Setup(comm, eval_nodes, normals, bc_flags, centers, r,
 
 f_owned = f[halo.owned_indices]   # each rank holds its slice of f
 
-solve = GenIterativeSolver(comm, patches, halo, n_interp=40,
-                           bc_scale=100.0, preconditioner='block_jacobi',
-                           atol=1e-10, btol=1e-10, maxiter=5000)
+Rs = PoissonRowMatrices(patches, bc_scale=100.0)
+solve = GenIterativeSolver(comm, patches, halo, n_interp=40, Rs,
+                           preconditioner='ras',   # or 'block_jacobi' / 'equilibrate'
+                           atol=1e-10, maxiter=5000)
 local_cs, itn, rnorm = solve(f_owned)
 ```
 
@@ -189,16 +195,18 @@ Smaller `H` → more patches, finer resolution. Larger `delta` → more overlap,
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `bc_scale` | 100.0 | Weight applied to boundary-condition rows |
-| `preconditioner` | `'block_jacobi'` | `'block_jacobi'`, `'equilibrate'`, or `'none'` |
-| `atol` / `btol` | 1e-10 | LSQR stopping tolerances |
-| `maxiter` | None | Maximum LSQR iterations |
-| `reorth` | False | Full Lanczos reorthogonalisation (reduces iterations on ill-conditioned problems at the cost of O(itn·M) memory and one extra Allreduce per iteration) |
+| `preconditioner` | `'block_jacobi'` | `'block_jacobi'`, `'equilibrate'`, `'none'`, or `'ras'` (halo backend only) |
+| `atol` / `btol` | 1e-10 | LSQR / PCG stopping tolerances |
+| `maxiter` | None | Maximum iterations |
+| `reorth` | False | Full Lanczos reorthogonalisation for LSQR (not used with `'ras'`) |
+
+The `'ras'` preconditioner switches the inner solver from LSQR to **PCG on the normal equations** (A^T A x = A^T b). It is only available in `source_halo/` because it requires the neighbourhood communication graph built during setup.
 
 The solver returns `(local_cs, itn, rnorm)`:
 
 - `local_cs` — list of `n_interp`-length coefficient arrays, one per local patch
-- `itn` — LSQR iteration count
-- `rnorm` — final residual norm
+- `itn` — iteration count
+- `rnorm` — final residual norm `‖Ax − b‖ / ‖b‖`
 
 ---
 
