@@ -15,24 +15,24 @@
     halo recv (nodes)  :        0
 
   Setup breakdown  (wall-clock; sub-times are mean over 5 reps)
-    Total setup            :   28.834 s
+    Total setup            :   33.159 s
     ├─ PhiFactors (rank 0) :    0.006 s   (  0.0%)
-    ├─ PhiFactors bcast    :   0.0002 s   (  0.0%)
-    ├─ Patch build  (≈)    :   28.818 s   ( 99.9%)
+    ├─ PhiFactors bcast    :   0.0003 s   (  0.0%)
+    ├─ Patch build  (≈)    :   33.141 s   ( 99.9%)
     ├─ build_halo_comm     :    0.003 s   (  0.0%)
-    └─ NormalizeWeights    :    0.007 s   (  0.0%)
+    └─ NormalizeWeights    :    0.008 s   (  0.0%)
 
   Per-iteration  (mean ms  [max ms] over 20 reps, barrier-bracketed)
-    matvec                 :   0.498 ms  [max   1.498]
-    rmatvec                :   0.312 ms  [max   0.634]
+    matvec                 :   0.287 ms  [max   0.367]
+    rmatvec                :   0.281 ms  [max   0.648]
     mv  halo exchange only :   0.000 ms              comm fraction 0.1%
     rmv halo exchange only :   0.000 ms              comm fraction 0.1%
     scalar Allreduce       :   0.001 ms
-    est. barriers/iter     :   0.002 ms  (2 per iter: β norm + α norm)
+    est. barriers/iter     :   0.003 ms  (2 per iter: β norm + α norm)
 
-  LSQR solve  (block-Jacobi, atol=btol=1e-10)
-    itn=5000  rnorm=4.845e-04  time=11.35 s
-SCALING_ROW ranks=1 M=10000 H=0.09 P=121 t_setup=28.8343 t_phi_compute=0.0057 t_phi_bcast=0.0002 t_patch=28.8182 t_halo_comm=0.0031 t_norm=0.0071 t_mv=0.4984 t_rmv=0.3120 t_comm_mv=0.0004 t_comm_rmv=0.0003 t_ar=0.0012 t_solve=11.3495 itn=5000 rnorm=4.8446e-04 P_r=121 n_owned=10000
+  PCG (RAS), atol=btol=1e-10)
+    itn=149  rnorm=4.909e-07  time=1.57 s
+SCALING_ROW ranks=1 M=10000 H=0.09 P=121 t_setup=33.1590 t_phi_compute=0.0061 t_phi_bcast=0.0003 t_patch=33.1415 t_halo_comm=0.0032 t_norm=0.0080 t_mv=0.2866 t_rmv=0.2812 t_comm_mv=0.0004 t_comm_rmv=0.0003 t_ar=0.0013 t_solve=1.5713 itn=149 rnorm=4.9093e-07 P_r=121 n_owned=10000
 
 ════════════════════════════════════════════════════════════════════════
 
@@ -53,24 +53,24 @@ SCALING_ROW ranks=1 M=10000 H=0.09 P=121 t_setup=28.8343 t_phi_compute=0.0057 t_
     halo recv (nodes)  :      262
 
   Setup breakdown  (wall-clock; sub-times are mean over 5 reps)
-    Total setup            :   18.253 s
-    ├─ PhiFactors (rank 0) :    0.005 s   (  0.0%)
-    ├─ PhiFactors bcast    :   0.0003 s   (  0.0%)
-    ├─ Patch build  (≈)    :   18.241 s   ( 99.9%)
-    ├─ build_halo_comm     :    0.002 s   (  0.0%)
-    └─ NormalizeWeights    :    0.004 s   (  0.0%)
+    Total setup            :   20.502 s
+    ├─ PhiFactors (rank 0) :    0.007 s   (  0.0%)
+    ├─ PhiFactors bcast    :   0.0005 s   (  0.0%)
+    ├─ Patch build  (≈)    :   20.487 s   ( 99.9%)
+    ├─ build_halo_comm     :    0.003 s   (  0.0%)
+    └─ NormalizeWeights    :    0.005 s   (  0.0%)
 
   Per-iteration  (mean ms  [max ms] over 20 reps, barrier-bracketed)
-    matvec                 :   0.162 ms  [max   0.227]
-    rmatvec                :   0.128 ms  [max   0.154]
-    mv  halo exchange only :   0.002 ms              comm fraction 1.2%
-    rmv halo exchange only :   0.003 ms              comm fraction 2.3%
+    matvec                 :   0.241 ms  [max   0.409]
+    rmatvec                :   0.170 ms  [max   0.340]
+    mv  halo exchange only :   0.005 ms              comm fraction 2.0%
+    rmv halo exchange only :   0.005 ms              comm fraction 3.2%
     scalar Allreduce       :   0.003 ms
     est. barriers/iter     :   0.005 ms  (2 per iter: β norm + α norm)
 
-  LSQR solve  (block-Jacobi, atol=btol=1e-10)
-    itn=5000  rnorm=4.845e-04  time=7.02 s
-SCALING_ROW ranks=2 M=10000 H=0.09 P=121 t_setup=18.2530 t_phi_compute=0.0052 t_phi_bcast=0.0003 t_patch=18.2413 t_halo_comm=0.0024 t_norm=0.0038 t_mv=0.1621 t_rmv=0.1278 t_comm_mv=0.0019 t_comm_rmv=0.0030 t_ar=0.0025 t_solve=7.0164 itn=5000 rnorm=4.8446e-04 P_r=60 n_owned=5000
+  PCG (RAS), atol=btol=1e-10)
+    itn=149  rnorm=4.909e-07  time=1.00 s
+SCALING_ROW ranks=2 M=10000 H=0.09 P=121 t_setup=20.5023 t_phi_compute=0.0070 t_phi_bcast=0.0005 t_patch=20.4871 t_halo_comm=0.0028 t_norm=0.0050 t_mv=0.2411 t_rmv=0.1704 t_comm_mv=0.0047 t_comm_rmv=0.0055 t_ar=0.0027 t_solve=1.0014 itn=149 rnorm=4.9093e-07 P_r=60 n_owned=5000
 
 ════════════════════════════════════════════════════════════════════════
 
@@ -91,24 +91,24 @@ SCALING_ROW ranks=2 M=10000 H=0.09 P=121 t_setup=18.2530 t_phi_compute=0.0052 t_
     halo recv (nodes)  :      264
 
   Setup breakdown  (wall-clock; sub-times are mean over 5 reps)
-    Total setup            :   12.861 s
-    ├─ PhiFactors (rank 0) :    0.008 s   (  0.1%)
-    ├─ PhiFactors bcast    :   0.0004 s   (  0.0%)
-    ├─ Patch build  (≈)    :   12.846 s   ( 99.9%)
+    Total setup            :   15.944 s
+    ├─ PhiFactors (rank 0) :    0.007 s   (  0.0%)
+    ├─ PhiFactors bcast    :   0.0006 s   (  0.0%)
+    ├─ Patch build  (≈)    :   15.930 s   ( 99.9%)
     ├─ build_halo_comm     :    0.003 s   (  0.0%)
-    └─ NormalizeWeights    :    0.004 s   (  0.0%)
+    └─ NormalizeWeights    :    0.003 s   (  0.0%)
 
   Per-iteration  (mean ms  [max ms] over 20 reps, barrier-bracketed)
-    matvec                 :   0.169 ms  [max   0.238]
-    rmatvec                :   0.136 ms  [max   0.166]
-    mv  halo exchange only :   0.010 ms              comm fraction 5.7%
-    rmv halo exchange only :   0.008 ms              comm fraction 5.6%
-    scalar Allreduce       :   0.006 ms
-    est. barriers/iter     :   0.011 ms  (2 per iter: β norm + α norm)
+    matvec                 :   0.137 ms  [max   0.358]
+    rmatvec                :   0.115 ms  [max   0.245]
+    mv  halo exchange only :   0.008 ms              comm fraction 5.5%
+    rmv halo exchange only :   0.006 ms              comm fraction 5.0%
+    scalar Allreduce       :   0.005 ms
+    est. barriers/iter     :   0.009 ms  (2 per iter: β norm + α norm)
 
-  LSQR solve  (block-Jacobi, atol=btol=1e-10)
-    itn=5000  rnorm=4.845e-04  time=4.34 s
-SCALING_ROW ranks=4 M=10000 H=0.09 P=121 t_setup=12.8608 t_phi_compute=0.0080 t_phi_bcast=0.0004 t_patch=12.8456 t_halo_comm=0.0032 t_norm=0.0036 t_mv=0.1688 t_rmv=0.1358 t_comm_mv=0.0097 t_comm_rmv=0.0076 t_ar=0.0057 t_solve=4.3353 itn=5000 rnorm=4.8446e-04 P_r=30 n_owned=2500
+  PCG (RAS), atol=btol=1e-10)
+    itn=149  rnorm=4.909e-07  time=0.81 s
+SCALING_ROW ranks=4 M=10000 H=0.09 P=121 t_setup=15.9437 t_phi_compute=0.0074 t_phi_bcast=0.0006 t_patch=15.9299 t_halo_comm=0.0026 t_norm=0.0032 t_mv=0.1373 t_rmv=0.1147 t_comm_mv=0.0076 t_comm_rmv=0.0057 t_ar=0.0047 t_solve=0.8145 itn=149 rnorm=4.9093e-07 P_r=30 n_owned=2500
 
 ════════════════════════════════════════════════════════════════════════
 
@@ -129,24 +129,24 @@ SCALING_ROW ranks=4 M=10000 H=0.09 P=121 t_setup=12.8608 t_phi_compute=0.0080 t_
     halo recv (nodes)  :      265
 
   Setup breakdown  (wall-clock; sub-times are mean over 5 reps)
-    Total setup            :   11.794 s
-    ├─ PhiFactors (rank 0) :    0.005 s   (  0.0%)
-    ├─ PhiFactors bcast    :   0.0005 s   (  0.0%)
-    ├─ Patch build  (≈)    :   11.785 s   ( 99.9%)
-    ├─ build_halo_comm     :    0.002 s   (  0.0%)
-    └─ NormalizeWeights    :    0.001 s   (  0.0%)
+    Total setup            :   15.034 s
+    ├─ PhiFactors (rank 0) :    0.008 s   (  0.1%)
+    ├─ PhiFactors bcast    :   0.0011 s   (  0.0%)
+    ├─ Patch build  (≈)    :   15.020 s   ( 99.9%)
+    ├─ build_halo_comm     :    0.003 s   (  0.0%)
+    └─ NormalizeWeights    :    0.002 s   (  0.0%)
 
   Per-iteration  (mean ms  [max ms] over 20 reps, barrier-bracketed)
-    matvec                 :   0.086 ms  [max   0.136]
-    rmatvec                :   0.066 ms  [max   0.226]
-    mv  halo exchange only :   0.009 ms              comm fraction 10.7%
-    rmv halo exchange only :   0.008 ms              comm fraction 12.4%
-    scalar Allreduce       :   0.007 ms
-    est. barriers/iter     :   0.013 ms  (2 per iter: β norm + α norm)
+    matvec                 :   0.153 ms  [max   0.409]
+    rmatvec                :   0.091 ms  [max   0.130]
+    mv  halo exchange only :   0.011 ms              comm fraction 7.4%
+    rmv halo exchange only :   0.023 ms              comm fraction 25.3%
+    scalar Allreduce       :   0.026 ms
+    est. barriers/iter     :   0.053 ms  (2 per iter: β norm + α norm)
 
-  LSQR solve  (block-Jacobi, atol=btol=1e-10)
-    itn=5000  rnorm=4.845e-04  time=3.26 s
-SCALING_ROW ranks=8 M=10000 H=0.09 P=121 t_setup=11.7940 t_phi_compute=0.0054 t_phi_bcast=0.0005 t_patch=11.7847 t_halo_comm=0.0020 t_norm=0.0014 t_mv=0.0860 t_rmv=0.0665 t_comm_mv=0.0092 t_comm_rmv=0.0083 t_ar=0.0066 t_solve=3.2598 itn=5000 rnorm=4.8446e-04 P_r=15 n_owned=1250
+  PCG (RAS), atol=btol=1e-10)
+    itn=149  rnorm=4.909e-07  time=0.63 s
+SCALING_ROW ranks=8 M=10000 H=0.09 P=121 t_setup=15.0340 t_phi_compute=0.0078 t_phi_bcast=0.0011 t_patch=15.0197 t_halo_comm=0.0030 t_norm=0.0024 t_mv=0.1527 t_rmv=0.0915 t_comm_mv=0.0113 t_comm_rmv=0.0231 t_ar=0.0264 t_solve=0.6294 itn=149 rnorm=4.9093e-07 P_r=15 n_owned=1250
 
 ════════════════════════════════════════════════════════════════════════
 
