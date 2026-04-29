@@ -70,7 +70,7 @@ local_cs, *_ = solve_ic(u_exact(0.0)[owned])
 # --- time-step solver (RAS preconditioner built once here) ---
 solve = GenIterativeSolver(comm, patches, halo, n_interp,
                            HeatStepRowMatrices(patches, dt, bc_scale),
-                           preconditioner='ras', atol=1e-8, maxiter=2000)
+                           preconditioner='sas', atol=1e-8, maxiter=2000)
 
 if rank == 0:
     print(f"Marching {n_steps} steps  dt={dt}  T={T}")

@@ -18,6 +18,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
 from matplotlib.path import Path
 from matplotlib.tri import Triangulation
 from scipy.spatial import Delaunay, cKDTree
@@ -52,20 +53,22 @@ def reconstruct(comm, patches, local_cs, M):
     return U
 
 # ── Parameters ─────────────────────────────────────────────────────────────────
-M_TARGET     = 6000      # target number of min-energy nodes in the star
-n_interp     = 30
+M_TARGET     = 2000      # target number of min-energy nodes in the star
+n_interp     = 10
 H            = 0.1
 delta        = 0.2
 bc_scale     = 100.0
 atol = btol  = 1e-12
 maxiter      = 20000
-preconditioner = 'block_jacobi'
-reorth       = True
+preconditioner = 'sas'
+reorth       =  False # True
 oversample   = 2.0       # min ratio of eval nodes / n_interp per patch (LS over-det.)
+refinement_ratio = 5.0   # boundary-to-interior node density ratio (1.0 = uniform)
 
 # ── Build nodes and patch centers (rank 0, then broadcast) ────────────────────
 if rank == 0:
-    nodes, normals, groups, star_verts = MinEnergyStarDomain(M_TARGET)
+    nodes, normals, groups, star_verts = MinEnergyStarDomain(
+        M_TARGET, refinement_ratio=refinement_ratio)
     centers_all, r = LarssonBox2D(H=H, xrange=(0, 1), yrange=(0, 1), delta=delta)
 
     tree = cKDTree(nodes)
@@ -182,3 +185,33 @@ if rank == 0:
     savepath = "figures/poisson_star_domain.png"
     fig.savefig(savepath, dpi=150)
     print(f"Figure saved to {savepath}")
+
+    # ── Eval-nodes + kept-patches diagnostic figure ───────────────────────────
+    fig2, ax2 = plt.subplots(figsize=(7, 7))
+    star_loop = np.vstack([star_verts, star_verts[0]])
+    ax2.plot(star_loop[:, 0], star_loop[:, 1], '-', color='black', lw=1.2, zorder=3)
+
+    for c in centers:
+        ax2.add_patch(Circle(c, r, facecolor='tab:blue', edgecolor='tab:blue',
+                             alpha=0.08, lw=0.4, zorder=1))
+
+    interior = groups['interior']
+    bdy_idx  = groups['boundary:all']
+    ax2.plot(nodes[interior, 0], nodes[interior, 1], '.', ms=2,
+             color='tab:gray', label=f'eval nodes (interior, {len(interior)})', zorder=2)
+    ax2.plot(nodes[bdy_idx, 0], nodes[bdy_idx, 1], '.', ms=3,
+             color='tab:red', label=f'eval nodes (boundary, {len(bdy_idx)})', zorder=2)
+    ax2.plot(centers[:, 0], centers[:, 1], 'x', ms=5, mew=1.0,
+             color='tab:blue', label=f'kept patch centers ({len(centers)})', zorder=4)
+
+    pad = 0.05
+    ax2.set_xlim(star_verts[:, 0].min() - pad, star_verts[:, 0].max() + pad)
+    ax2.set_ylim(star_verts[:, 1].min() - pad, star_verts[:, 1].max() + pad)
+    ax2.set_aspect('equal')
+    ax2.set_title(f"Eval nodes and kept patches  ($r={r:.3f}$, $H={H}$, $\\delta={delta}$)",
+                  fontsize=11)
+    ax2.legend(loc='upper right', fontsize=8, framealpha=0.9)
+    fig2.tight_layout()
+    savepath2 = "figures/poisson_star_domain_patches.png"
+    fig2.savefig(savepath2, dpi=150)
+    print(f"Patch diagnostic figure saved to {savepath2}")

@@ -2,7 +2,7 @@ import numpy as np
 from mpi4py import MPI
 
 from .Operators import GenMatFreeOps
-from .Preconditioners import GenBlockJacobi, GenDiagEquil, GenRAS
+from .Preconditioners import GenBlockJacobi, GenDiagEquil, GenSAS
 from .LSQR import lsqr
 from .PCG import pcg
 
@@ -21,8 +21,8 @@ def GenIterativeSolver(comm, patches, halo, n_interp, Rs,
     halo     : HaloComm
     n_interp : int
     Rs       : list[(n_eval_p, n_interp) ndarray]  row matrices (e.g. PoissonRowMatrices)
-    preconditioner : 'block_jacobi' | 'equilibrate' | 'none' | 'ras'
-        'ras' uses PCG on the normal equations with a symmetric additive Schwarz
+    preconditioner : 'block_jacobi' | 'equilibrate' | 'none' | 'sas'
+        'sas' uses PCG on the normal equations with a symmetric additive Schwarz
         left preconditioner; the others use right-preconditioned LSQR.
 
     Returns
@@ -33,8 +33,8 @@ def GenIterativeSolver(comm, patches, halo, n_interp, Rs,
     """
     matvec, rmatvec = GenMatFreeOps(patches, Rs, halo, n_interp)
 
-    if preconditioner == 'ras':
-        apply_sas = GenRAS(comm, patches, Rs, n_interp)
+    if preconditioner == 'sas':
+        apply_sas = GenSAS(comm, patches, Rs, n_interp)
 
         def solve(f_owned):
             x, itn, rnorm = pcg(comm, matvec, rmatvec, f_owned,

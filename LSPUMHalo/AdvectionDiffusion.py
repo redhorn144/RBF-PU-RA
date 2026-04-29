@@ -67,7 +67,7 @@ matvec_adv, _ = GenMatFreeOps(patches, AdvectionRowMatrices(patches, a), halo, n
 def make_solver(alpha):
     Rs = HelmholtzStepRowMatrices(patches, alpha, dt, nu, bc_scale)
     return GenIterativeSolver(comm, patches, halo, n_interp, Rs,
-                              preconditioner='ras', atol=1e-8, maxiter=2000)
+                              preconditioner='sas', atol=1e-8, maxiter=2000)
 
 solve_bdf1 = make_solver(1.0)
 solve_bdf2 = make_solver(1.5)

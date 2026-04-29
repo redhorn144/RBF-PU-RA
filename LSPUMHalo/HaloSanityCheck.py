@@ -180,7 +180,7 @@ def main():
 
     Rs_poisson = PoissonRowMatrices(patches, bc_scale)
     solve = GenIterativeSolver(comm, patches, halo, n_interp, Rs_poisson,
-                               preconditioner='ras',
+                               preconditioner='sas',
                                atol=1e-10, btol=1e-10, maxiter=10000)
     local_cs, itn, rnorm = solve(f_owned)
 

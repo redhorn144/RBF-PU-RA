@@ -281,7 +281,7 @@ def run_config(comm, M, H):
     # ---- full LSQR solve (single timed call) ----
     f_owned = f_global[halo.owned_indices]
     solve   = GenIterativeSolver(comm, patches, halo, N_INTERP, Rs,
-                                 preconditioner='ras',
+                                 preconditioner='sas',
                                  atol=1e-10, btol=1e-10, maxiter=5000)
     comm.Barrier()
     t0 = MPI.Wtime()

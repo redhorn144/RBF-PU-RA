@@ -90,9 +90,9 @@ def GenDiagEquil(Rs, n_interp):
     return apply, apply
 
 
-def GenRAS(comm, patches, Rs, n_interp, ridge=1e-14):
+def GenSAS(comm, patches, Rs, n_interp, ridge=1e-14):
     """
-    Restricted Additive Schwarz preconditioner for the PUM normal equations.
+    Symmetric Additive Schwarz preconditioner for the PUM normal equations.
 
     For each local patch p, builds an extended local system M̃_p = A_ext^T A_ext
     where A_ext covers all patches in the 1-ring neighborhood N(p).  Factors M̃_p

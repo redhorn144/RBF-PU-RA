@@ -17,14 +17,44 @@ def _star_polygon(cx, cy, R_out, R_in, n_points):
     return vert, edges
 
 
-def MinEnergyStarDomain(N, cx=0.5, cy=0.5, R_out=0.45, R_in=0.18, n_points=5):
+def _boundary_density(vert, refinement_ratio, scale):
+    A     = vert
+    B     = np.roll(vert, -1, axis=0)
+    AB    = B - A
+    AB_sq = (AB * AB).sum(axis=1)
+    floor = 1.0 / refinement_ratio
+
+    def rho(x):
+        AP      = x[:, None, :] - A[None, :, :]
+        t       = np.clip((AP * AB[None, :, :]).sum(axis=-1) / AB_sq[None, :], 0.0, 1.0)
+        closest = A[None, :, :] + t[..., None] * AB[None, :, :]
+        d       = np.linalg.norm(x[:, None, :] - closest, axis=-1).min(axis=1)
+        s       = np.clip(d / scale, 0.0, 1.0)
+        return 1.0 - (1.0 - floor) * s
+
+    return rho
+
+
+def MinEnergyStarDomain(N, cx=0.5, cy=0.5, R_out=0.45, R_in=0.18, n_points=5,
+                        refinement_ratio=1.0):
     """
     5-pointed star domain centred at (cx, cy), filled with N minimum-energy
     nodes. Unlike PoissonStarDomain, the user controls the global node count
     directly via N (matches MinEnergySquareOne semantics).
+
+    refinement_ratio : float >= 1
+        Boundary-to-interior density ratio. 1.0 (default) gives uniform
+        density; values > 1 place more nodes near the polygon edges, with
+        the deep interior reaching density 1 / refinement_ratio. Distance
+        is measured to the polygon segments (correct in the cusps); the
+        falloff scale is R_in.
     """
     vert, edges = _star_polygon(cx, cy, R_out, R_in, n_points)
-    nodes, groups, normals = min_energy_nodes(N, (vert, edges))
+    if refinement_ratio > 1.0:
+        rho = _boundary_density(vert, refinement_ratio, scale=R_in)
+        nodes, groups, normals = min_energy_nodes(N, (vert, edges), rho=rho)
+    else:
+        nodes, groups, normals = min_energy_nodes(N, (vert, edges))
 
     interior = groups['interior']
     boundary = groups['boundary:all']
