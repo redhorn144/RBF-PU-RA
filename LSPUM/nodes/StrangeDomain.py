@@ -1,5 +1,41 @@
 import numpy as np
-from rbf.pde.nodes import poisson_disc_nodes
+from rbf.pde.nodes import poisson_disc_nodes, min_energy_nodes
+
+
+def _star_polygon(cx, cy, R_out, R_in, n_points):
+    angles_out = np.pi / 2 + np.arange(n_points) * 2 * np.pi / n_points
+    angles_in  = angles_out + np.pi / n_points
+
+    verts = []
+    for ao, ai in zip(angles_out, angles_in):
+        verts.append([cx + R_out * np.cos(ao), cy + R_out * np.sin(ao)])
+        verts.append([cx + R_in  * np.cos(ai), cy + R_in  * np.sin(ai)])
+    vert = np.array(verts)
+
+    n = len(vert)
+    edges = np.array([[i, (i + 1) % n] for i in range(n)])
+    return vert, edges
+
+
+def MinEnergyStarDomain(N, cx=0.5, cy=0.5, R_out=0.45, R_in=0.18, n_points=5):
+    """
+    5-pointed star domain centred at (cx, cy), filled with N minimum-energy
+    nodes. Unlike PoissonStarDomain, the user controls the global node count
+    directly via N (matches MinEnergySquareOne semantics).
+    """
+    vert, edges = _star_polygon(cx, cy, R_out, R_in, n_points)
+    nodes, groups, normals = min_energy_nodes(N, (vert, edges))
+
+    interior = groups['interior']
+    boundary = groups['boundary:all']
+    nodes   = np.vstack([nodes[interior],   nodes[boundary]])
+    normals = np.vstack([normals[interior], normals[boundary]])
+
+    n_int = len(interior)
+    groups['interior']     = np.arange(n_int)
+    groups['boundary:all'] = np.arange(n_int, len(nodes))
+
+    return nodes, normals, groups, vert
 
 
 def PoissonStarDomain(r, cx=0.5, cy=0.5, R_out=0.45, R_in=0.18, n_points=5,
