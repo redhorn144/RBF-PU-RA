@@ -1,6 +1,6 @@
 """
 AdvectionDiffusion.py — du/dt = ν·Δu − a·∇u on the unit square, homogeneous Dirichlet BCs.
-BDF3/EXT3 IMEX: diffusion implicit (Helmholtz solve, RAS-preconditioned PCG),
+BDF3/EXT3 IMEX: diffusion implicit (Helmholtz solve, SAS-preconditioned PCG),
                 advection explicit (3rd-order extrapolation).
 Output: figures/advection_diffusion.gif
 """
@@ -63,7 +63,7 @@ def reconstruct(local_cs):
 # --- matvec for explicit advection evaluation: g = -a·∇u at owned nodes ---
 matvec_adv, _ = GenMatFreeOps(patches, AdvectionRowMatrices(patches, a), halo, n_interp)
 
-# --- three IMEX implicit solvers (RAS preconditioner factored once each) ---
+# --- three IMEX implicit solvers (SAS preconditioner factored once each) ---
 def make_solver(alpha):
     Rs = HelmholtzStepRowMatrices(patches, alpha, dt, nu, bc_scale)
     return GenIterativeSolver(comm, patches, halo, n_interp, Rs,

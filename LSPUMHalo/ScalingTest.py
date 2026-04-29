@@ -324,7 +324,7 @@ def run_config(comm, M, H):
     pr(comm, f"    est. barriers/iter     : {1e3*2*t_ar_mean:7.3f} ms  (2 per iter: β norm + α norm)")
 
     pr(comm)
-    pr(comm, f"  PCG (RAS), atol=btol=1e-10)")
+    pr(comm, f"  PCG (SAS), atol=btol=1e-10)")
     pr(comm, f"    itn={itn}  rnorm={rnorm:.3e}  time={t_solve:.2f} s")
 
     # Machine-parseable line for rank-sweep and weak-scaling analysis

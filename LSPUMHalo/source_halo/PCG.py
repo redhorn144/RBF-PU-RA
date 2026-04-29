@@ -4,7 +4,7 @@ from mpi4py import MPI
 ###############################################################################
 # Preconditioned Conjugate Gradient on the normal equations A^T A x = A^T b.
 #
-# This is the correct solver for an additive Schwarz (RAS) left preconditioner.
+# This is the correct solver for a symmetric additive Schwarz (SAS) left preconditioner.
 # Each iteration applies:
 #   1. matvec(p)   — A p  (owned space, with halo exchange)
 #   2. rmatvec(Ap) — A^T (A p)  (local space, with halo exchange)

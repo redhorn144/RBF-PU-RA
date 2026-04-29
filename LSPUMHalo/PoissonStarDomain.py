@@ -75,7 +75,7 @@ if rank == 0:
     ball  = [np.asarray(tree.query_ball_point(c, r), dtype=int) for c in centers_all]
     counts = np.array([len(b) for b in ball])
 
-    # Stage 1: keep over-determined patches (needed for RAS Cholesky stability)
+    # Stage 1: keep over-determined patches (needed for SAS Cholesky stability)
     min_eval = int(np.ceil(oversample * n_interp))
     keep = counts >= min_eval
 

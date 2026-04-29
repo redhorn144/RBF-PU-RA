@@ -1,6 +1,6 @@
 """
 HeatEquation.py — du/dt = Δu on the unit square, homogeneous Dirichlet BCs.
-Backward Euler, LS-RBF-PUM (halo-exchange backend), RAS-preconditioned PCG.
+Backward Euler, LS-RBF-PUM (halo-exchange backend), SAS-preconditioned PCG.
 Output: figures/heat.gif
 """
 
@@ -67,7 +67,7 @@ solve_ic = GenIterativeSolver(comm, patches, halo, n_interp,
                                preconditioner='block_jacobi', atol=1e-12)
 local_cs, *_ = solve_ic(u_exact(0.0)[owned])
 
-# --- time-step solver (RAS preconditioner built once here) ---
+# --- time-step solver (SAS preconditioner built once here) ---
 solve = GenIterativeSolver(comm, patches, halo, n_interp,
                            HeatStepRowMatrices(patches, dt, bc_scale),
                            preconditioner='sas', atol=1e-8, maxiter=2000)
