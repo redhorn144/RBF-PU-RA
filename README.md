@@ -135,7 +135,7 @@ The discrete operator is rectangular ($M \times N$ with $M > N$, $N = $ patches 
 
 Compared to collocation, LS-PUM:
 
-- Tolerates patches that overhang the domain (eval nodes that are outside still contribute coverage).
+- Tolerates patches that overhang the domain (interp nodes that are outside still contribute coverage).
 - Decouples patch density from node density — patches can be tiled regularly even on irregular domains.
 - Requires an iterative least-squares solver (LSQR, or PCG on the normal equations).
 
